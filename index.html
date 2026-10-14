@@ -8,8 +8,8 @@
 <meta name="theme-color" content="#172027" media="(prefers-color-scheme: dark)">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="apple-mobile-web-app-title" content="런치매니저">
-<title>서부 런치매니저</title>
+<meta name="apple-mobile-web-app-title" content="점심반장">
+<title>서부 점심반장</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Nanum+Myeongjo:wght@800&display=swap">
@@ -317,9 +317,9 @@ p{margin:0}
 <div class="app" id="app" data-tab="today">
   <header class="top">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true">점</span>
+      <span class="brand-mark" aria-hidden="true">반</span>
       <div>
-        <div class="brand-name">서부 런치매니저</div>
+        <div class="brand-name">서부 점심반장</div>
         <div class="brand-sub" id="todayLabel"></div>
       </div>
     </div>
@@ -3228,7 +3228,7 @@ function doImport() {
 /* ---------- 인수인계 ---------- */
 const exportText = () => JSON.stringify({ app: APP_ID, version: 1, exportedAt: TODAY, data: S }, null, 1);
 function exportFile() {
-  const name = `런치매니저_인수인계_${TODAY}.json`, text = exportText();
+  const name = `점심반장_인수인계_${TODAY}.json`, text = exportText();
   const done = msg => { S.lastBackup = TODAY; save(); renderSettings(); renderToday(); toast(msg); };
   // claude.ai에서 열었을 때: 플랫폼 저장 창을 거친다
   if (downloadsNS) {
@@ -3247,7 +3247,7 @@ function exportFile() {
 function askImport(text) {
   let obj; try { obj = JSON.parse(text); } catch (e) { toast('인수인계 파일을 읽지 못했습니다. 저장한 파일 내용 그대로인지 확인하세요.'); return; }
   const data = obj && obj.data ? obj.data : obj;
-  if (!data || !Array.isArray(data.restaurants)) { toast('런치매니저 인수인계 파일이 아닙니다.'); return; }
+  if (!data || !Array.isArray(data.restaurants)) { toast('점심반장 인수인계 파일이 아닙니다.'); return; }
   openModal(`<h2>인수인계 파일 불러오기</h2><p>불러온 자료(식당 ${data.restaurants.length}곳 · 방문 기록 ${(data.visits || []).length}건 · 명단 ${(data.roster || []).length}명)로 지금 자료를 바꿉니다. 지금 자료는 사라집니다.</p>
     <div class="dlg-actions"><span class="grow"></span><button type="button" class="btn" data-action="closeModal">취소</button><button type="button" class="btn seal" id="confirmImport">바꾸기</button></div>`,
     d => d.querySelector('#confirmImport').addEventListener('click', () => { data.app = APP_ID; S = normalize(data); Geo.clear(); save(); closeModal(); App.select(null); renderAll(); toast('불러왔습니다.'); }));

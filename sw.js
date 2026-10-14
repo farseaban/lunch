@@ -1,6 +1,6 @@
-// 서부 런치매니저 서비스워커: 한 번 열어 두면 인터넷이 끊겨도 열리게 한다.
+// 서부 점심반장 서비스워커: 한 번 열어 두면 인터넷이 끊겨도 열리게 한다.
 // 이 파일을 고치면 CACHE 이름의 숫자를 올린다(index.html만 고칠 때는 그대로 둔다).
-const CACHE = 'lunch-v1';
+const CACHE = 'lunch-v2';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-maskable-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

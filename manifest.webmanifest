@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "서부 런치매니저",
-  "short_name": "런치매니저",
+  "name": "서부 점심반장",
+  "short_name": "점심반장",
   "description": "대전서부교육지원청 점심 결정 도우미",
   "lang": "ko",
   "start_url": "./",
