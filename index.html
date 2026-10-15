@@ -2764,7 +2764,7 @@ function shareHtml(r) {
   const cells = excelLine(r).split('\t');
   return `<section class="sec"><div class="sec-h"><h3>공지문</h3><span>고쳐 쓴 뒤 복사해도 됩니다</span></div>
       <textarea id="noticeText" class="notice-text" rows="4">${esc(fillNotice(r))}</textarea>
-      <div class="row"><button type="button" class="btn seal" data-action="copyNotice">공지문 복사</button>${r.tel ? `<button type="button" class="btn" data-action="copyTel" data-tel="${esc(r.tel)}">예약 전화번호 복사</button>` : ''}</div></section>
+      <div class="row"><button type="button" class="btn seal" data-action="copyNotice">공지문 복사</button><button type="button" class="btn" data-action="copyBoth">공지문 + 엑셀 한 줄 함께 복사</button>${r.tel ? `<button type="button" class="btn" data-action="copyTel" data-tel="${esc(r.tel)}">예약 전화번호 복사</button>` : ''}</div></section>
     <section class="sec"><div class="sec-h"><h3>엑셀 기록용 한 줄</h3><span>엑셀의 날짜 칸을 누르고 붙여 넣기</span></div>
       <div class="xline">${cells.map(c => `<span>${esc(c) || '&nbsp;'}</span>`).join('')}</div>
       <div class="row"><button type="button" class="btn" data-action="copyExcel">엑셀용 한 줄 복사</button></div></section>
@@ -3326,6 +3326,7 @@ const actions = {
   openRow: el => { const r = byId(el.dataset.id); if (!r) return; if (r.x == null) { openEdit(r.id); return; } if (isNarrow()) setTab('map'); requestAnimationFrame(() => App.select(r.id, true)); },
   copyNotice: () => copyText($('#noticeText').value, '공지문을 복사했습니다. 메신저에 붙여 넣으세요.'),
   copyExcel: () => { const r = byId(getDay().pick); if (r) copyText(excelLine(r), '복사했습니다. 엑셀의 날짜 칸을 누르고 붙여 넣으세요.'); },
+  copyBoth: () => { const r = byId(getDay().pick); if (r) copyText($('#noticeText').value + '\n\n' + excelLine(r), '공지문과 엑셀 한 줄을 함께 복사했습니다.'); },
   copyTel: el => copyText(el.dataset.tel, '전화번호를 복사했습니다.'),
   rate: el => { const v = S.visits.find(x => x.date === el.dataset.date); if (!v) return; v.rating = v.rating === el.dataset.rating ? null : el.dataset.rating; save(); renderAll(); },
   togglePerson: el => { const ab = S.absent[TODAY] = S.absent[TODAY] || [], id = el.dataset.id, i = ab.indexOf(id); if (i >= 0) ab.splice(i, 1); else ab.push(id); syncTodayVisit(); save(); renderToday(); },
