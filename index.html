@@ -342,6 +342,15 @@ p{margin:0}
 .led-ocr input:not([type=checkbox]){height:38px;border:1px solid var(--line-2);border-radius:9px;padding:0 8px;background:var(--surface);min-width:0}
 .led-ocr input[type=checkbox]{width:18px;height:18px;accent-color:var(--seal)}
 .vh{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none}
+.led-ps{font-size:12.5px;color:var(--ink-3);margin-top:-4px}
+.led-ps.ok{color:var(--go);font-weight:600}
+.led-sug{list-style:none;margin:2px 0 0;padding:4px;border:1px solid var(--line-2);border-radius:12px;background:var(--surface);box-shadow:var(--shadow);display:flex;flex-direction:column;gap:2px;max-height:300px;overflow:auto}
+.led-sug-h{font-size:12px;color:var(--ink-3);padding:4px 8px}
+.led-sug-i{width:100%;text-align:left;border:0;background:transparent;border-radius:8px;padding:8px 10px;cursor:pointer;display:flex;flex-direction:column;gap:1px;font-size:14px;font-weight:500}
+.led-sug-i:hover,.led-sug-i.is-active{background:var(--surface-2)}
+.led-sug-i small{color:var(--ink-3);font-size:12px;font-weight:400}
+.led-sug-i mark{background:var(--seal-soft);color:var(--seal-text);border-radius:3px;padding:0 1px;font-weight:700}
+.led-sug-i.new{color:var(--ink-2);font-weight:600}
 .led-raw{margin-top:8px;font-size:12.5px}
 .led-raw pre{white-space:pre-wrap;font:12px/1.5 ui-monospace,Consolas,monospace;background:var(--surface-2);padding:8px;border-radius:8px;max-height:160px;overflow:auto;margin:6px 0 0}
 @media (max-width:520px){.dialog{padding:16px}}
@@ -3495,6 +3504,123 @@ function ledSums() {
   const D = LED, on = D.items.filter(i => i.on && num(i.amount) > 0), sum = on.reduce((a, i) => a + num(i.amount), 0);
   return { on, sum, paid: D.paid ? num(D.paid) : sum };
 }
+/* 장소 자동완성: 입력할수록 후보가 좁혀지는 것이 보이게 한다 */
+const CHO = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+const choseong = s => Array.from(String(s)).map(ch => { const c = ch.charCodeAt(0) - 0xAC00; return c >= 0 && c <= 11171 ? CHO[Math.floor(c / 588)] : ch; }).join('');
+const SKIP_CH = /[\s()\[\]·.,\-_/]/;
+const normQ = s => String(s || '').toLowerCase().replace(/[\s()\[\]·.,\-_/]+/g, '');
+function placeCandidates() {
+  const st = stats(), seen = new Set(), list = [];
+  for (const r of S.restaurants) {
+    const s = st.get(r.id);
+    list.push({ name: r.name, rid: r.id, cat: r.cat, menu: r.menu || '', addr: r.addr || '', kind: 'r', days: s ? s.days : null, walk: r.x != null ? Geo.measure(r).walkMin : null });
+    seen.add(normQ(r.name));
+  }
+  for (const e of S.ledger.expenses) {
+    if (e.deleted || !e.place || seen.has(normQ(e.place))) continue;
+    seen.add(normQ(e.place));
+    list.push({ name: e.place, rid: null, cat: kindLabel(e.kind), menu: '', kind: 'p', days: dayDiff(e.date, TODAY), walk: null });
+  }
+  return list;
+}
+function subseq(n, q) { let j = 0; for (let i = 0; i < n.length && j < q.length; i++) if (n[i] === q[j]) j++; return j === q.length; }
+function placeMatch(c, q) {
+  const nq = normQ(q); if (!nq) return null;
+  const n = normQ(c.name); let score, how = 'name';
+  if (n === nq) score = 100;
+  else if (n.startsWith(nq)) score = 90;
+  else if (n.includes(nq)) score = 75;
+  else if (/^[ㄱ-ㅎ]+$/.test(nq) && normQ(choseong(c.name)).includes(nq)) { score = 60; how = 'cho'; }
+  else if (nq.length >= 2 && normQ(c.menu).includes(nq)) { score = 45; how = 'menu'; }
+  else if (nq.length >= 2 && subseq(n, nq)) { score = 30; how = 'loose'; }
+  else return null;
+  score -= n.length * 0.05;
+  if (c.days != null && c.days <= 30) score += 3;
+  if (c.walk != null) score += Math.max(0, 5 - c.walk / 3);
+  return { c, score, how };
+}
+function hlName(name, q) {
+  const nq = normQ(q), chars = Array.from(String(name)), keep = [], norm = [];
+  chars.forEach((ch, i) => { if (!SKIP_CH.test(ch)) { keep.push(i); norm.push(ch.toLowerCase()); } });
+  const n = norm.join(''), marks = new Set();
+  let at = n.indexOf(nq);
+  if (at >= 0 && nq) for (let k = at; k < at + nq.length; k++) marks.add(keep[k]);
+  else if (/^[ㄱ-ㅎ]+$/.test(nq)) {
+    const cs = normQ(choseong(name)); at = cs.indexOf(nq);
+    if (at >= 0) for (let k = at; k < at + nq.length; k++) marks.add(keep[k]);
+  } else if (nq.length >= 2 && subseq(n, nq)) { let j = 0; for (let k = 0; k < n.length && j < nq.length; k++) if (n[k] === nq[j]) { marks.add(keep[k]); j++; } }
+  return chars.map((ch, i) => (marks.has(i) ? `<mark>${esc(ch)}</mark>` : esc(ch))).join('');
+}
+function placeRecents() {
+  const out = [], seen = new Set(), cands = placeCandidates(), byRid = new Map(cands.filter(c => c.rid).map(c => [c.rid, c])), byName = new Map(cands.map(c => [normQ(c.name), c]));
+  const add = c => { if (c && !seen.has(normQ(c.name))) { seen.add(normQ(c.name)); out.push({ c, score: 0, how: 'recent' }); } };
+  const day = getDay(); if (day.confirmedAt && day.pick) add(byRid.get(day.pick));
+  for (const v of S.visits.slice().sort((a, b) => b.date.localeCompare(a.date))) { add(byRid.get(v.rid)); if (out.length >= 4) break; }
+  for (const e of ledExpenses().slice().reverse()) { add(byName.get(normQ(e.place))); if (out.length >= 7) break; }
+  return out.slice(0, 7);
+}
+function placeSub(m, dup) {
+  const c = m.c, p = [];
+  p.push(m.how === 'menu' ? '메뉴로 찾음 · ' + c.cat : c.cat);
+  if (c.walk != null) p.push(`도보 ${c.walk}분`);
+  if (dup && c.addr) { const a = c.addr.match(/(\S+(?:로|길)\d*(?:번길)?)\s+(\d+(?:-\d+)?)/); p.push(a ? a[1] + ' ' + a[2] : c.addr.slice(0, 14)); }
+  if (c.kind === 'p') p.push('이전 기록');
+  if (c.days != null) p.push(c.days === 0 ? '오늘 다녀옴' : `${c.days}일 전`);
+  return p.join(' · ');
+}
+function ledPlaceUI(open) {
+  const D = LED; if (!D || D.view !== 'main') return;
+  const ul = $('#ledSug'), st = $('#ledPlaceState'); if (!ul || !st) return;
+  const q = D.place.trim(), cands = placeCandidates(), dups = new Map(); let items, head = '';
+  for (const c of cands) dups.set(normQ(c.name), (dups.get(normQ(c.name)) || 0) + 1);
+  if (q) {
+    const all = cands.map(c => placeMatch(c, q)).filter(Boolean).sort((a, b) => b.score - a.score);
+    items = all.slice(0, 6);
+    const nm = all.filter(m => m.how !== 'menu').length, mn = all.length - nm;
+    head = all.length ? `‘${q}’ 와(과) 맞는 곳 ${all.length}곳${mn && nm ? ` (이름 ${nm} · 메뉴 ${mn})` : ''}${all.length > 6 ? ' · 더 쓰면 좁혀져요' : ''}` : `‘${q}’ 와(과) 맞는 곳이 없습니다`;
+  } else { items = placeRecents(); head = items.length ? '최근에 간 곳' : ''; }
+  const exact = items.some(m => m.score >= 99);
+  D.sug = { items, active: -1, open: !!open && (items.length > 0 || !!q) };
+  ul.hidden = !D.sug.open;
+  ul.innerHTML = (head ? `<li class="led-sug-h">${esc(head)}</li>` : '')
+    + items.map((m, k) => `<li role="option"><button type="button" class="led-sug-i" data-action="ledPlacePick" data-k="${k}"><span>${hlName(m.c.name, q)}</span><small>${esc(placeSub(m, (dups.get(normQ(m.c.name)) || 0) > 1))}</small></button></li>`).join('')
+    + (q && !exact ? `<li><button type="button" class="led-sug-i new" data-action="ledPlaceNew">‘${esc(q)}’ 이 이름 그대로 새 장소로 기록</button></li>` : '');
+  const linked = D.rid && byId(D.rid);
+  st.className = 'led-ps full' + (linked ? ' ok' : '');
+  st.textContent = linked ? `✓ 식당 목록과 연결됨 · ${linked.cat} · 이 가게의 메뉴판을 불러옵니다`
+    : q ? (items.length && !exact ? '아래 후보를 눌러 고르면 식당 목록과 연결됩니다.' : '목록에 없는 이름입니다. 이대로 새 장소로 기록합니다.') : '가게 이름 일부만 써도 찾아 드려요 (예: 칼국, ㅅㅂㅊ, 메뉴 이름)';
+}
+function ledPlaceChoose(k) {
+  const D = LED, m = D.sug && D.sug.items[k]; if (!m) return;
+  D.place = m.c.name; D.rid = m.c.rid || null;
+  const inp = $('#ledPlace'); if (inp) inp.value = D.place;
+  ledPlaceUI(false); ledBoardRefresh();
+}
+function ledSugMove(d) {
+  const ul = $('#ledSug'); if (!ul || ul.hidden || !LED.sug) return;
+  const btns = $$('.led-sug-i', ul); if (!btns.length) return;
+  const cur = btns.findIndex(b => b.classList.contains('is-active'));
+  const nx = (cur + d + btns.length) % btns.length;
+  btns.forEach((b, i) => b.classList.toggle('is-active', i === nx));
+  btns[nx].scrollIntoView({ block: 'nearest' });
+}
+document.addEventListener('focusin', e => { if (LED && e.target && e.target.id === 'ledPlace') ledPlaceUI(true); });
+document.addEventListener('click', e => {
+  if (!LED || !LED.sug || !LED.sug.open) return;
+  if (e.target.closest && e.target.closest('#ledSug,#ledPlace')) return;
+  LED.sug.open = false; const ul = $('#ledSug'); if (ul) ul.hidden = true;
+});
+document.addEventListener('keydown', e => {
+  if (!LED || !e.target || e.target.id !== 'ledPlace') return;
+  const ul = $('#ledSug'), openList = ul && !ul.hidden;
+  if (e.key === 'ArrowDown') { e.preventDefault(); if (!openList) ledPlaceUI(true); else ledSugMove(1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); ledSugMove(-1); }
+  else if (e.key === 'Enter' && openList) {
+    const a = $('.led-sug-i.is-active', ul);
+    e.preventDefault(); if (a && a.dataset.action === 'ledPlacePick') ledPlaceChoose(+a.dataset.k); else { LED.sug.open = false; ul.hidden = true; }
+  }
+  else if (e.key === 'Escape' && openList) { e.preventDefault(); e.stopImmediatePropagation(); LED.sug.open = false; ul.hidden = true; }
+}, true);
 function ledBoardHtml() {
   const D = LED, board = S.ledger.menus[menuKey(D.rid, D.place)] || [];
   return `<details class="led-board"><summary>메뉴판 (${esc(D.place || '이 가게')})</summary>
@@ -3515,8 +3641,9 @@ function ledMainHtml() {
     <div class="form led-form">
       <label>날짜<input type="date" data-led="date" value="${esc(D.date)}"></label>
       <label>종류<select data-led="kind">${LED_KINDS.map(([k, l]) => `<option value="${k}"${k === D.kind ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
-      <label class="full">장소<input data-led="place" list="ledPlaces" value="${esc(D.place)}" placeholder="식당·카페 이름" autocomplete="off"></label>
-      <datalist id="ledPlaces">${S.restaurants.map(r => `<option value="${esc(r.name)}"></option>`).join('')}</datalist>
+      <label class="full">장소<input data-led="place" id="ledPlace" value="${esc(D.place)}" placeholder="식당·카페 이름" autocomplete="off" autocapitalize="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-controls="ledSug"></label>
+      <div class="led-ps full" id="ledPlaceState"></div>
+      <ul class="led-sug full" id="ledSug" role="listbox" hidden></ul>
     </div>
     <div class="sec-h" style="margin-top:14px"><h3>먹은 사람</h3><span>이름을 눌러 켜고 끄세요</span></div>
     ${S.roster.length ? '' : '<p class="muted small">이 기기에는 명단이 없습니다. 아래에서 이름을 직접 추가하거나 설정 › 명단에 등록하세요.</p>'}
@@ -3561,7 +3688,7 @@ function ledRender(first) {
   const dlg = $('#modal .dialog'), keep = dlg ? dlg.scrollTop : 0, open = dlg && !$('#modal').hidden && dlg.dataset.led === '1';
   if (open && !first) { dlg.innerHTML = html; dlg.scrollTop = v === 'main' ? keep : 0; }
   else { openModal(html); const d2 = $('#modal .dialog'); if (d2) d2.dataset.led = '1'; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
-  if (v === 'main') { const det = $('#modal .led-board'); if (det && D.boardOpen) det.open = true; }
+  if (v === 'main') { const det = $('#modal .led-board'); if (det && D.boardOpen) det.open = true; ledPlaceUI(false); }
 }
 function ledTotalHtml() {
   const { sum, paid } = ledSums();
@@ -3574,8 +3701,8 @@ function ledSet(t, isChange) {
   else if (k === 'kind') D.kind = t.value;
   else if (k === 'place') {
     D.place = t.value;
-    const r = S.restaurants.find(x => x.name === t.value.trim()); D.rid = r ? r.id : null;
-    if (isChange) ledBoardRefresh();
+    const nv = normQ(t.value), r = nv ? S.restaurants.find(x => normQ(x.name) === nv) : null; D.rid = r ? r.id : null;
+    if (isChange) ledBoardRefresh(); else ledPlaceUI(true);
   }
   else if (k === 'payer') { D.payer = t.value.trim(); $$('#modal .pchip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.name === D.payer))); if (!D.payer || D.payer === treasurerName()) D.reimbursedAt = null; }
   else if (k === 'paid') { D.paid = String(num(t.value) || ''); ledUpdateSum(); }
@@ -3876,6 +4003,8 @@ const actions = {
   ledPickManual: () => { const n = $('#pkN').value.trim(), p = num($('#pkP').value); if (!n) { toast('메뉴 이름을 적어 주세요.'); return; } if (p > 0 && LED.place.trim()) { learnMenu(LED.rid, LED.place.trim(), n, p); save(); } ledApplyMenu(n, p); },
   ledPickClear: () => { const D = LED, list = D.pickTarget === 'all' ? D.items.filter(i => i.on) : [D.items[D.pickTarget]].filter(Boolean); for (const i of list) i.menu = ''; D.view = 'main'; ledRender(); },
   ledPickBack: () => { LED.view = LED.view === 'ocr' ? 'pick' : 'main'; ledRender(); },
+  ledPlacePick: el => ledPlaceChoose(+el.dataset.k),
+  ledPlaceNew: () => { if (LED.sug) LED.sug.open = false; const ul = $('#ledSug'); if (ul) ul.hidden = true; ledPlaceUI(false); },
   ledOcrCancel: () => { ocrToken++; LED.view = 'pick'; ledRender(); },
   ledOcrAdd: () => { const D = LED, items = ((D.ocr && D.ocr.items) || []).filter(i => i.on && i.n.trim() && i.p > 0); if (!items.length) { toast('등록할 메뉴가 없습니다.'); return; } for (const i of items) learnMenu(D.rid, D.place.trim(), i.n.trim(), i.p); save(); toast(`메뉴 ${items.length}개를 등록했습니다.`); D.view = 'pick'; ledRender(); },
   ledPayer: el => { const D = LED; D.payer = D.payer === el.dataset.name ? '' : el.dataset.name; if (!D.payer || D.payer === treasurerName()) D.reimbursedAt = null; ledRender(); },
