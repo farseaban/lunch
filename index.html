@@ -357,6 +357,15 @@ p{margin:0}
 .led-rc input:not([type=checkbox]){height:38px;border:1px solid var(--line-2);border-radius:9px;padding:0 8px;background:var(--surface);min-width:0}
 .led-rc input[type=checkbox]{width:18px;height:18px;accent-color:var(--seal)}
 .led-scan{margin-bottom:6px}
+.led-mb{list-style:none;margin:8px 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.led-board .led-mb li,.led-mb li{display:grid;grid-template-columns:minmax(0,1fr) 84px 30px;gap:6px;align-items:center}
+.led-mb input,.mg-add input{height:36px;border:1px solid var(--line-2);border-radius:9px;padding:0 8px;background:var(--surface);min-width:0}
+.led-mb input[data-mb="p"]{text-align:right;font-variant-numeric:tabular-nums}
+.mg-g{border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--surface)}
+.mg-g+.mg-g{margin-top:8px}
+.mg-g summary{cursor:pointer;font-weight:600;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.mg-g summary small{color:var(--ink-3);font-weight:400}
+.led-ocr li small,.led-rc li small{grid-column:2/-1;color:var(--ink-3);font-size:12px;margin-top:-2px}
 .led-raw{margin-top:8px;font-size:12.5px}
 .led-raw pre{white-space:pre-wrap;font:12px/1.5 ui-monospace,Consolas,monospace;background:var(--surface-2);padding:8px;border-radius:8px;max-height:160px;overflow:auto;margin:6px 0 0}
 @media (max-width:520px){.dialog{padding:16px}}
@@ -2563,6 +2572,7 @@ function normalize(s) {
   if (!s.ledger || typeof s.ledger !== 'object') s.ledger = {};
   if (!Array.isArray(s.ledger.expenses)) s.ledger.expenses = [];
   for (const k of ['menus', 'settled']) if (!s.ledger[k] || typeof s.ledger[k] !== 'object') s.ledger[k] = {};
+  menusFix(s.ledger.menus);
   // 기본 목록에 새로 생긴 식당을 저장된 목록에 합친다(이미 지운 식당은 다시 넣지 않는다).
   if (!Array.isArray(s.seedSeen)) s.seedSeen = SEED_RESTAURANTS.filter(r => /^s\d+$/.test(r.id)).map(r => r.id);
   for (const r of SEED_RESTAURANTS) if (!s.seedSeen.includes(r.id)) { s.seedSeen.push(r.id); if (!s.restaurants.some(x => x.id === r.id)) s.restaurants.push(seedToRestaurant(r)); }
@@ -3412,19 +3422,131 @@ function monthPeople(list) {
   return [...order.filter(n => seen.includes(n)), ...seen.filter(n => !order.includes(n))];
 }
 function personTotals(list) { const t = {}; for (const e of list) for (const it of e.items) t[it.name] = (t[it.name] || 0) + (it.amount || 0); return t; }
+/* ---------- 메뉴판 DB: 가게별 메뉴·가격. 없는 것만 쌓고, 가격은 사용자가 직접 고칠 때만 바뀐다 ---------- */
+function menuNorm(s) { return String(s || '').toLowerCase().replace(/[\s()\[\]·.,\-_/]+/g, ''); }
+function menuIdFor(key, name) { let h = 5381; for (const ch of String(key) + '|' + menuNorm(name)) h = ((h * 33) ^ ch.charCodeAt(0)) >>> 0; return 'm' + h.toString(36); }
+function menusFix(menus) {
+  for (const key of Object.keys(menus)) {
+    if (!Array.isArray(menus[key])) { delete menus[key]; continue; }
+    menus[key] = menus[key].filter(m => m && m.n);
+    for (const m of menus[key]) { if (!m.id) m.id = menuIdFor(key, m.n); if (!(m.u > 0)) m.u = 0; m.p = Math.round(+m.p || 0); m.d = !!m.d; }
+  }
+}
 const menuKey = (rid, place) => rid || 'p:' + String(place || '').replace(/\s+/g, '');
+const newMenuId = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+const menuList = key => (S.ledger.menus[key] || []).filter(m => !m.d);
+const menuFind = (key, name) => { const q = menuNorm(name); return menuList(key).find(m => menuNorm(m.n) === q) || null; };
+function menuPut(key, name, price, force) {
+  name = String(name || '').trim(); price = Math.round(+price || 0);
+  if (!name || !(price > 0) || key === 'p:') return 'skip';
+  const L = S.ledger.menus[key] = S.ledger.menus[key] || [], q = menuNorm(name), ex = L.find(m => menuNorm(m.n) === q);
+  if (ex && !ex.d) { if (force && ex.p !== price) { ex.p = price; ex.u = Date.now(); return 'changed'; } return 'kept'; }
+  if (ex && ex.d) { ex.d = false; ex.n = name; ex.p = price; ex.u = Date.now(); return 'added'; }
+  L.push({ id: newMenuId(), n: name, p: price, u: Date.now(), d: false }); return 'added';
+}
+const learnMenu = (rid, place, name, price) => menuPut(menuKey(rid, place), name, price, false);
+function menuRemove(key, mid) { const m = (S.ledger.menus[key] || []).find(x => x.id === mid); if (m) { m.d = true; m.u = Date.now(); save(); } }
+function menuEdit(key, mid, field, value) {
+  const L = S.ledger.menus[key], m = L && L.find(x => x.id === mid); if (!m) return false;
+  if (field === 'n') {
+    const nn = String(value).trim(); if (!nn) return false;
+    if (L.some(x => x !== m && !x.d && menuNorm(x.n) === menuNorm(nn))) { toast('같은 이름의 메뉴가 이미 있습니다.'); return false; }
+    if (nn === m.n) return false; m.n = nn;
+  } else { const p = num(value); if (!(p > 0) || p === m.p) return false; m.p = p; }
+  m.u = Date.now(); save(); return true;
+}
+function menuState(key, name, price) {
+  if (key === 'p:') return { s: 'new' };
+  const db = menuFind(key, name); if (!db) return { s: 'new' };
+  return db.p === +price ? { s: 'same', db } : { s: 'diff', db };
+}
 function menuSuggest(rid, place) {
-  const board = (S.ledger.menus[menuKey(rid, place)] || []).map(m => ({ n: m.n, p: m.p }));
+  const board = menuList(menuKey(rid, place)).map(m => ({ n: m.n, p: m.p }));
   const r = rid && byId(rid);
-  if (r && r.menu) for (const n of r.menu.split(/[,，、]/).map(x => x.trim()).filter(Boolean)) if (!board.some(b => b.n === n)) board.push({ n, p: null });
+  if (r && r.menu) for (const n of r.menu.split(/[,，、]/).map(x => x.trim()).filter(Boolean)) if (!board.some(b => menuNorm(b.n) === menuNorm(n))) board.push({ n, p: null });
   return board;
 }
-function learnMenu(rid, place, name, price) {
-  const key = menuKey(rid, place);
-  if (!name || !(price > 0) || key === 'p:') return;
-  const list = S.ledger.menus[key] = S.ledger.menus[key] || [];
-  const ex = list.find(m => m.n === name);
-  if (ex) ex.p = price; else list.push({ n: name, p: price });
+function mergeMenus(dst, src) {
+  if (!src || typeof src !== 'object') return 0; let changed = 0;
+  for (const [k, list] of Object.entries(src)) {
+    if (!Array.isArray(list) || k.length > 80 || k === '__proto__') continue;
+    const cur = dst[k] = dst[k] || [];
+    for (const raw of list) {
+      const nm = str(raw && raw.n, 60).trim(), p = Math.round(+(raw && raw.p) || 0); if (!nm || !(p > 0)) continue;
+      const m = { id: str(raw.id, 40) || menuIdFor(k, nm), n: nm, p, u: +raw.u || 0, d: !!raw.d };
+      const ex = cur.find(x => x.id === m.id);
+      if (!ex) { cur.push(m); changed++; } else if (m.u > (ex.u || 0)) { Object.assign(ex, m); changed++; }
+    }
+    const seen = new Set();
+    for (const m of cur.slice().sort((a, b) => (b.u || 0) - (a.u || 0))) { if (m.d) continue; const q = menuNorm(m.n); if (seen.has(q)) { m.d = true; m.u = Date.now(); changed++; } else seen.add(q); }
+  }
+  return changed;
+}
+function mbCommit(t) {
+  const holder = t.closest('[data-key]'), key = holder ? holder.dataset.key : (LED ? menuKey(LED.rid, LED.place.trim()) : null); if (!key) return;
+  const ok = menuEdit(key, t.dataset.mid, t.dataset.mb, t.value);
+  const m = (S.ledger.menus[key] || []).find(x => x.id === t.dataset.mid); if (m) t.value = t.dataset.mb === 'n' ? m.n : m.p;
+  if (ok) toast('메뉴판을 고쳤습니다.');
+}
+document.addEventListener('change', e => { const t = e.target; if (t && t.dataset && t.dataset.mb) mbCommit(t); });
+
+/* 메뉴판 관리 화면 */
+const MG = { q: '', open: '' };
+function mgItemsHtml(key) {
+  return menuList(key).map(m => `<li><input data-mb="n" data-mid="${m.id}" value="${esc(m.n)}" aria-label="메뉴 이름"><input data-mb="p" data-mid="${m.id}" inputmode="numeric" value="${m.p}" aria-label="가격"><button type="button" class="led-x" data-action="ledMenuDel" data-mid="${m.id}" data-key="${esc(key)}" aria-label="${esc(m.n)} 지우기">✕</button></li>`).join('');
+}
+function mgGroups() {
+  const q = menuNorm(MG.q), groups = [];
+  const hasMenu = key => menuList(key).length > 0;
+  for (const r of S.restaurants) {
+    const items = menuList(r.id), hit = !q || menuNorm(r.name).includes(q) || items.some(m => menuNorm(m.n).includes(q));
+    if (hit && (items.length || (q && menuNorm(r.name).includes(q)))) groups.push({ key: r.id, name: r.name, sub: r.cat });
+  }
+  for (const key of Object.keys(S.ledger.menus)) {
+    if (!key.startsWith('p:') || !hasMenu(key)) continue;
+    const e = S.ledger.expenses.find(x => !x.deleted && menuKey(x.rid, x.place) === key), name = e ? e.place : key.slice(2);
+    if (!q || menuNorm(name).includes(q) || menuList(key).some(m => menuNorm(m.n).includes(q))) groups.push({ key, name, sub: '이전 기록' });
+  }
+  return groups.sort((a, b) => menuList(b.key).length - menuList(a.key).length || a.name.localeCompare(b.name, 'ko')).slice(0, 60);
+}
+function mgListHtml() {
+  const groups = mgGroups();
+  if (!groups.length) return `<p class="muted small" style="margin:10px 0">${MG.q ? '맞는 가게나 메뉴가 없습니다.' : '아직 등록된 메뉴가 없습니다. 영수증·사진으로 읽거나 기록할 때 쌓입니다.'}</p>`;
+  return groups.map(g => `<details class="mg-g" data-key="${esc(g.key)}"${MG.q || MG.open === g.key ? ' open' : ''}><summary>${esc(g.name)} <small>${esc(g.sub)} · 메뉴 ${menuList(g.key).length}개</small></summary>
+    <ul class="led-mb">${mgItemsHtml(g.key) || '<li class="muted small">아직 없습니다.</li>'}</ul>
+    <div class="inline mg-add"><input class="mgN" placeholder="새 메뉴" aria-label="메뉴 이름"><input class="mgP" inputmode="numeric" placeholder="가격" aria-label="가격" style="max-width:100px"><button type="button" class="btn sm" data-action="mgAdd" data-key="${esc(g.key)}">추가</button></div></details>`).join('');
+}
+function mgListRefresh() { const el = $('#mgList'); if (el) el.innerHTML = mgListHtml(); }
+function openMenus() {
+  MG.q = ''; MG.open = '';
+  openModal(`<h2>메뉴판 관리</h2><p class="muted small">가게별 메뉴와 가격입니다. 새 메뉴는 영수증·사진·기록 때 없는 것만 쌓이고, <b>가격은 자동으로 바뀌지 않습니다.</b> 바뀐 가격은 여기서 직접 고치세요. 가게를 검색하면 메뉴가 없는 가게에도 추가할 수 있습니다.</p>
+    <input id="mgQ" class="searchbox" type="search" placeholder="가게 또는 메뉴 검색" autocomplete="off" style="margin:10px 0"><div id="mgList">${mgListHtml()}</div>
+    <div class="dlg-actions"><span class="grow"></span><button type="button" class="btn seal" data-action="closeModal">닫기</button></div>`);
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+}
+document.addEventListener('input', e => { if (e.target && e.target.id === 'mgQ') { MG.q = e.target.value; mgListRefresh(); } });
+function menuDbHtml() {
+  const keys = Object.keys(S.ledger.menus).filter(k => menuList(k).length), total = keys.reduce((a, k) => a + menuList(k).length, 0);
+  return `<section class="sec"><div class="sec-h"><h3>메뉴판</h3><span>가게 ${keys.length}곳 · 메뉴 ${total}개</span></div>
+    <p class="muted small">가게별 메뉴와 가격을 쌓아 두고 기록할 때 골라 씁니다. 가격이 바뀌면 직접 고치세요.</p>
+    <div class="row"><button type="button" class="btn" data-action="mgOpen">메뉴판 관리</button></div></section>`;
+}
+function ocrNote(it) {
+  const k = menuKey(LED.rid, (LED.place || '').trim()); if (k === 'p:') return '';
+  const st = menuState(k, it.n, it.p);
+  return st.s === 'new' ? '새 메뉴 → 메뉴판에 등록' : st.s === 'same' ? '메뉴판에 이미 있음' : `메뉴판 ${won(st.db.p)}원과 다름 · 체크하면 가격을 바꿉니다`;
+}
+function rcKey() {
+  const rc = LED.ocr.rc; if (rc.match) return rc.match.r.id;
+  const nv = normQ(rc.store), r = nv ? S.restaurants.find(x => normQ(x.name) === nv) : null;
+  return r ? r.id : menuKey(null, rc.store.trim());
+}
+function rcNoteHtml(it, k) {
+  const key = rcKey(); if (key === 'p:' || !String(it.name || '').trim() || !(+it.unit > 0)) return '';
+  const st = menuState(key, it.name, it.unit);
+  if (st.s === 'new') return '새 메뉴 → 메뉴판에 등록';
+  if (st.s === 'same') return `메뉴판 ${won(st.db.p)}원과 같음`;
+  return `메뉴판 ${won(st.db.p)}원과 다름 · <label class="ck"><input type="checkbox" data-rc="upd" data-k="${k}"${it.upd ? ' checked' : ''}> 메뉴판 가격도 바꾸기</label>`;
 }
 function ledNote(e) {
   const t = treasurerName(), parts = [];
@@ -3486,6 +3608,7 @@ function renderLedger() {
       <ul class="led-list">${pending.map(e => `<li><span class="d">${fmtMD(e.date)}</span><span class="nm">${esc(e.place)} · 결재 ${esc(e.payer)}</span><b>${won(expPaid(e))}원</b><button type="button" class="btn sm" data-action="ledReimburse" data-id="${e.id}">송금완료</button></li>`).join('')}</ul></section>` : ''}
     ${list.length ? `<section class="sec"><div class="sec-h"><h3>내역</h3><span>눌러서 수정</span></div>
       <ul class="led-list">${list.slice().reverse().map(e => `<li class="led-item" data-action="ledEdit" data-id="${e.id}" tabindex="0" role="button"><span class="d">${fmtMD(e.date)}</span><span class="nm">${esc(e.place)}<small>${kindLabel(e.kind)} · ${e.items.length}명${e.payer && t && e.payer !== t ? ` · 결재 ${esc(e.payer)}` : ''}</small></span><b>${won(expPaid(e))}원</b></li>`).join('')}</ul></section>` : ''}
+    ${menuDbHtml()}
     ${syncLedgerHtml()}`;
 }
 
@@ -3628,11 +3751,12 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Escape' && openList) { e.preventDefault(); e.stopImmediatePropagation(); LED.sug.open = false; ul.hidden = true; }
 }, true);
 function ledBoardHtml() {
-  const D = LED, board = S.ledger.menus[menuKey(D.rid, D.place)] || [];
-  return `<details class="led-board"><summary>메뉴판 (${esc(D.place || '이 가게')})</summary>
-      ${D.place || D.rid ? `<ul>${board.map((m, k) => `<li><span>${esc(m.n)}</span><b>${won(m.p)}원</b><button type="button" class="link" data-action="ledMenuDel" data-k="${k}">지우기</button></li>`).join('') || '<li class="muted small">아직 없습니다. 메뉴와 금액을 적어 저장하면 다음부터 골라 쓸 수 있습니다.</li>'}</ul>
-      <div class="inline"><input id="lmN" placeholder="메뉴" aria-label="메뉴 이름"><input id="lmP" inputmode="numeric" placeholder="가격" aria-label="가격" style="max-width:100px"><button type="button" class="btn sm" data-action="ledMenuAdd">추가</button></div>
-      <div class="row" style="margin-top:8px"><label class="btn sm" for="ocrFile">📷 영수증·메뉴판 사진 읽기</label></div>` : '<p class="muted small">장소를 먼저 적어 주세요.</p>'}
+  const D = LED, key = menuKey(D.rid, D.place), board = menuList(key);
+  return `<details class="led-board"><summary>메뉴판 (${esc(D.place || '이 가게')}) · ${board.length}개</summary>
+      ${D.place || D.rid ? `<p class="muted small" style="margin:6px 0 0">가격이 바뀌면 여기서 직접 고치세요. 자동으로 바뀌지 않습니다.</p>
+      <ul class="led-mb">${board.map(m => `<li><input data-mb="n" data-mid="${m.id}" value="${esc(m.n)}" aria-label="메뉴 이름"><input data-mb="p" data-mid="${m.id}" inputmode="numeric" value="${m.p}" aria-label="가격"><button type="button" class="led-x" data-action="ledMenuDel" data-mid="${m.id}" aria-label="${esc(m.n)} 지우기">✕</button></li>`).join('') || '<li class="muted small">아직 없습니다. 아래에 추가하거나 영수증·메뉴판 사진으로 등록하세요.</li>'}</ul>
+      <div class="inline"><input id="lmN" placeholder="새 메뉴" aria-label="메뉴 이름"><input id="lmP" inputmode="numeric" placeholder="가격" aria-label="가격" style="max-width:100px"><button type="button" class="btn sm" data-action="ledMenuAdd">추가</button></div>
+      <div class="row" style="margin-top:8px"><label class="btn sm" for="ocrFile">📷 영수증·메뉴판 사진 읽기</label><button type="button" class="btn sm ghost" data-action="mgOpen">전체 메뉴판 관리</button></div>` : '<p class="muted small">장소를 먼저 적어 주세요.</p>'}
     </details>`;
 }
 function ledBoardRefresh() {
@@ -3682,7 +3806,7 @@ function ledOcrHtml() {
   if (o.status === 'error') return `<h2>읽지 못했습니다</h2><p>${esc(o.msg)}</p><div class="dlg-actions"><label class="btn" for="ocrFile">다시 찍기</label><input type="file" id="ocrFile" accept="image/*" class="vh"><span class="grow"></span><button type="button" class="btn" data-action="ledPickBack">돌아가기</button></div>`;
   if (o.kind === 'receipt' && o.rc) return ledRcptHtml();
   return `<h2>읽은 메뉴 확인</h2><p class="muted small">틀린 글자와 가격을 고친 뒤 등록하세요. 체크를 끈 줄은 등록하지 않습니다.</p>
-    ${o.items.length ? `<ul class="led-ocr">${o.items.map((it, k) => `<li><input type="checkbox" data-ocr="on" data-k="${k}"${it.on ? ' checked' : ''} aria-label="등록"><input data-ocr="n" data-k="${k}" value="${esc(it.n)}" aria-label="메뉴 이름"><input data-ocr="p" data-k="${k}" inputmode="numeric" value="${it.p}" aria-label="가격"></li>`).join('')}</ul>` : '<p style="margin:8px 0">메뉴와 가격을 찾지 못했습니다. 글자가 크게 나오도록 가까이서 다시 찍어 보세요.</p>'}
+    ${o.items.length ? `<ul class="led-ocr">${o.items.map((it, k) => `<li><input type="checkbox" data-ocr="on" data-k="${k}"${it.on ? ' checked' : ''} aria-label="등록"><input data-ocr="n" data-k="${k}" value="${esc(it.n)}" aria-label="메뉴 이름"><input data-ocr="p" data-k="${k}" inputmode="numeric" value="${it.p}" aria-label="가격"><small class="led-ocr-n" data-ocr-n="${k}">${esc(ocrNote(it))}</small></li>`).join('')}</ul>` : '<p style="margin:8px 0">메뉴와 가격을 찾지 못했습니다. 글자가 크게 나오도록 가까이서 다시 찍어 보세요.</p>'}
     <details class="led-raw"><summary>읽은 원문 보기</summary><pre>${esc(o.raw)}</pre></details>
     <div class="dlg-actions"><label class="btn" for="ocrFile">다시 찍기</label><input type="file" id="ocrFile" accept="image/*" class="vh"><span class="grow"></span><button type="button" class="btn" data-action="ledPickBack">돌아가기</button><button type="button" class="btn seal" data-action="ledOcrAdd">메뉴판에 등록</button></div>`;
 }
@@ -3690,11 +3814,11 @@ function ledRcptHtml() {
   const o = LED.ocr, rc = o.rc, m = rc.match;
   return `<h2>영수증 읽은 결과</h2><p class="muted small">숫자(합계·날짜·전화)는 대체로 정확하지만 글자는 틀릴 수 있습니다. 확인하고 고쳐 주세요.</p>
     <div class="form led-form" style="margin-top:10px"><label class="full">상호<input data-rc="store" value="${esc(rc.store)}" autocomplete="off"></label>
-      <div class="led-ps full${m ? ' ok' : ''}">${m ? `✓ 식당 목록의 ‘${esc(m.r.name)}’과 연결됩니다 (${esc(m.why.join('·'))} 일치) <button type="button" class="link" data-action="ledRcUnlink">연결 해제</button>` : '식당 목록에서 찾지 못했습니다. 상호 그대로 새 장소로 기록합니다.'}</div>
+      <div class="led-ps full${m ? ' ok' : ''}">${m ? `✓ 식당 목록의 ‘${esc(m.r.name)}’과 연결됩니다 (${esc(m.why.join('·'))} 일치) <button type="button" class="link" data-action="ledRcUnlink">연결 해제</button>` : (rc.suggest && rc.suggest.length ? `식당 목록에서 확실히 찾지 못했습니다. 혹시 이 가게인가요? ${rc.suggest.map((s, k) => `<button type="button" class="pchip" data-action="ledRcPick" data-k="${k}">${esc(s.r.name)}</button>`).join(' ')}` : '식당 목록에서 찾지 못했습니다. 상호 그대로 새 장소로 기록합니다.')}</div>
       <label>날짜<input type="date" data-rc="date" value="${esc(rc.date)}"></label>
       <label>영수증 합계(원)<input data-rc="total" inputmode="numeric" value="${rc.total || ''}"></label></div>
     <div class="sec-h" style="margin-top:12px"><h3>품목</h3><span id="rcSum">${esc(rcSumText())}</span></div>
-    ${rc.items.length ? `<ul class="led-rc"><li class="led-rc-h"><span></span><span>메뉴</span><span>단가</span><span>수량</span></li>${rc.items.map((it, k) => `<li><input type="checkbox" data-rc="on" data-k="${k}"${it.on ? ' checked' : ''} aria-label="사용"><input data-rc="name" data-k="${k}" value="${esc(it.name)}" placeholder="메뉴 이름" aria-label="메뉴 이름"><input data-rc="unit" data-k="${k}" inputmode="numeric" value="${it.unit}" aria-label="단가"><input data-rc="qty" data-k="${k}" inputmode="numeric" value="${it.qty}" aria-label="수량"></li>`).join('')}</ul>` : '<p class="muted small" style="margin:8px 0">품목을 찾지 못했습니다. 장소·날짜·합계만 적용됩니다.</p>'}
+    ${rc.items.length ? `<ul class="led-rc"><li class="led-rc-h"><span></span><span>메뉴</span><span>단가</span><span>수량</span></li>${rc.items.map((it, k) => `<li><input type="checkbox" data-rc="on" data-k="${k}"${it.on ? ' checked' : ''} aria-label="사용"><input data-rc="name" data-k="${k}" value="${esc(it.name)}" placeholder="메뉴 이름" aria-label="메뉴 이름"><input data-rc="unit" data-k="${k}" inputmode="numeric" value="${it.unit}" aria-label="단가"><input data-rc="qty" data-k="${k}" inputmode="numeric" value="${it.qty}" aria-label="수량"><small class="led-rc-n" data-rc-n="${k}">${rcNoteHtml(it, k)}</small></li>`).join('')}</ul>` : '<p class="muted small" style="margin:8px 0">품목을 찾지 못했습니다. 장소·날짜·합계만 적용됩니다.</p>'}
     <details class="led-raw"><summary>읽은 원문 보기</summary><pre>${esc(o.raw)}</pre></details>
     <div class="dlg-actions"><label class="btn" for="ocrFile">다시 찍기</label><input type="file" id="ocrFile" accept="image/*" class="vh"><span class="grow"></span><button type="button" class="btn" data-action="ledPickBack">돌아가기</button><button type="button" class="btn seal" data-action="ledRcptApply">기록에 넣기</button></div>`;
 }
@@ -3710,10 +3834,12 @@ function rcSet(t) {
   else if (f === 'date') rc.date = t.value;
   else if (f === 'total') rc.total = num(t.value);
   else if (it && f === 'name') it.name = t.value;
-  else if (it && f === 'unit') it.unit = num(t.value);
-  else if (it && f === 'qty') it.qty = num(t.value);
+  else if (it && f === 'unit') { it.unit = num(t.value); rc.guess = false; }
+  else if (it && f === 'qty') { it.qty = num(t.value); rc.guess = false; }
   else if (it && f === 'on') it.on = t.checked;
+  else if (it && f === 'upd') it.upd = t.checked;
   const s = $('#rcSum'); if (s) s.textContent = rcSumText();
+  if (f !== 'upd' && f !== 'on') $$('[data-rc-n]').forEach(el => { const k = +el.dataset.rcN; if (rc.items[k]) el.innerHTML = rcNoteHtml(rc.items[k], k); });
 }
 function ledDelPersonHtml() {
   const it = LED.items[LED.delIdx] || { name: '' };
@@ -3751,12 +3877,12 @@ document.addEventListener('input', e => {
   const t = e.target; if (!LED || !t.dataset) return;
   if (t.dataset.led) ledSet(t, false);
   else if (t.dataset.rc) rcSet(t);
-  else if (t.dataset.ocr && LED.ocr && LED.ocr.items[+t.dataset.k]) { const it = LED.ocr.items[+t.dataset.k]; if (t.dataset.ocr === 'n') it.n = t.value; else if (t.dataset.ocr === 'p') it.p = num(t.value); }
+  else if (t.dataset.ocr && LED.ocr && LED.ocr.items[+t.dataset.k]) { const it = LED.ocr.items[+t.dataset.k]; if (t.dataset.ocr === 'n') it.n = t.value; else if (t.dataset.ocr === 'p') it.p = num(t.value); const nt = $('[data-ocr-n="' + t.dataset.k + '"]'); if (nt) nt.textContent = ocrNote(it); }
 });
 document.addEventListener('change', e => {
   const t = e.target; if (!LED || !t.dataset) return;
   if (t.dataset.led) ledSet(t, true);
-  else if (t.dataset.rc === 'on') rcSet(t);
+  else if (t.dataset.rc === 'on' || t.dataset.rc === 'upd') rcSet(t);
   else if (t.dataset.ocr === 'on' && LED.ocr && LED.ocr.items[+t.dataset.k]) LED.ocr.items[+t.dataset.k].on = t.checked;
   else if (t.id === 'ocrFile' && t.files && t.files[0]) { const f = t.files[0]; t.value = ''; runOcr(f); }
 });
@@ -3791,6 +3917,7 @@ function numsIn(line) {
   while ((m = re.exec(line))) out.push({ v: parseInt(m[0].replace(/[,.\s]/g, ''), 10), raw: m[0], i: m.index, end: m.index + m[0].length });
   return out;
 }
+const BIZ = /\d{3}\s*[-\s]\s*\d{2}\s*[-\s]\s*\d{5}/;
 const RC_WORDS = /영수증|합\s*계|승인|신용|카드|부가세|상품명|단가|수량|매장명|사업자|과세|면세|거래/g;
 const receiptKind = text => ((String(text).match(RC_WORDS) || []).length >= 2 ? 'receipt' : 'menu');
 const hangulName = s => String(s).replace(/[^가-힣A-Za-z0-9()&\s]/g, ' ').replace(/\b\d{4,}\b/g, ' ').replace(/\s+/g, ' ').trim();
@@ -3816,7 +3943,7 @@ function parseReceipt(text) {
     const r = roadNo(l); if (r) { rc.road = r; break; }
   }
   for (const l of String(text || '').split(/\r?\n/)) {
-    const m = l.match(/(?:매\s*장\s*명|상\s*호(?:\s*명)?|가맹점\s*명|업\s*소\s*명)\s*[:\]]?\s*(.+)$/);
+    const m = l.match(/(?:매\s*장(?:\s*명)?|상\s*호(?:\s*명)?|가맹점(?:\s*명)?|업\s*소\s*명)\s*[:\]]?\s*(.+)$/);
     if (!m) continue;
     const words = []; for (const w of m[1].replace(/^[\]:\s]+/, '').split(/\s{3,}/)[0].split(' ')) { if (/[가-힣A-Za-z]/.test(w) || w.length >= 3) words.push(w.replace(/[^가-힣A-Za-z0-9()&]/g, '')); else break; }
     rc.store = words.join(' ').trim(); if (rc.store) break;
@@ -3825,15 +3952,15 @@ function parseReceipt(text) {
   const cnt = new Map();
   for (const l of lines) {
     const hot = /합\s*계|승인\s*금|결제\s*금|받을|총\s*금/.test(l) ? 3 : 0;
-    if (bad.test(l) && !hot) continue;
+    if ((bad.test(l) || BIZ.test(l)) && !hot) continue;
     if (/부\s*가\s*세|판\s*매\s*금\s*액|공급|면세|과세/.test(l)) continue;
     if (/\d{4}\s*[-./]\s*\d/.test(l) || /\d{2,4}\s*-\s*\d{2,4}\s*-\s*\d{3,}/.test(l)) continue;
-    for (const n of numsIn(l)) if (n.v >= 1000 && n.v <= 5000000) cnt.set(n.v, (cnt.get(n.v) || 0) + 1 + hot);
+    for (const n of numsIn(l)) if (n.v >= 1000 && n.v <= 5000000 && n.v % 10 === 0) cnt.set(n.v, (cnt.get(n.v) || 0) + 1 + hot);
   }
-  rc.total = ([...cnt.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0] || [0])[0];
+  rc.total = ([...cnt.entries()].filter(e => e[1] >= 2).sort((a, b) => b[1] - a[1] || b[0] - a[0])[0] || [0])[0];
   const skip = /합\s*계|승인|부\s*가\s*세|판\s*매|카드|거래|할부|사업자|전화|TEL|주\s*소|주\s*문|대표/;
   for (let k = 0; k < lines.length; k++) {
-    const line = lines[k]; if (skip.test(line)) continue;
+    const line = lines[k]; if (skip.test(line) || BIZ.test(line)) continue;
     const ns = numsIn(line); let hit = null;
     for (let a = 0; a + 2 < ns.length && !hit; a++) {
       const u = ns[a].v, q = ns[a + 1].v, amt = ns[a + 2].v;
@@ -3847,13 +3974,25 @@ function parseReceipt(text) {
   }
   if (!rc.items.length) {
     for (const line of lines) {
-      if (skip.test(line)) continue;
-      const ns = numsIn(line).filter(n => n.v >= 1000 && n.v <= 300000 && n.v !== rc.total); if (ns.length !== 1) continue;
+      if (skip.test(line) || BIZ.test(line)) continue;
+      const ns = numsIn(line).filter(n => n.v >= 1000 && n.v <= 300000 && n.v % 100 === 0 && n.v !== rc.total); if (ns.length !== 1) continue;
       const name = hangulName(line.slice(0, ns[0].i)); if (hasKo(name) && name.length <= 24) rc.items.push({ on: true, name, unit: ns[0].v, qty: 1 });
+    }
+  }
+  if (!rc.items.length && rc.total) {
+    const h = lines.findIndex(l => /상\s*품\s*명|품\s*명/.test(l));
+    if (h >= 0) for (let b = h + 1; b <= h + 3 && b < lines.length; b++) {
+      const nm = hangulName(lines[b]);
+      if (hasKo(nm) && !skip.test(lines[b]) && !BIZ.test(lines[b])) { rc.items.push({ on: true, name: nm, unit: rc.total, qty: 1 }); rc.guess = true; break; }
     }
   }
   rc.sum = rc.items.reduce((a, i) => a + i.unit * i.qty, 0);
   return rc;
+}
+function suggestRestaurants(name, restaurants) {
+  const nn = normQ(name); if (nn.length < 3) return [];
+  return restaurants.map(r => { const rn = normQ(r.name), d = lev(nn, rn), lim = Math.max(1, Math.floor(Math.max(nn.length, rn.length) * 0.4)); return d <= lim ? { r, d } : null; })
+    .filter(Boolean).sort((a, b) => a.d - b.d).slice(0, 3);
 }
 function matchReceiptRestaurant(rc, restaurants) {
   const dg = s => String(s || '').replace(/\D/g, ''), pd = dg(rc.phone), nn = normQ(rc.store);
@@ -3923,9 +4062,13 @@ function ocrInterpret(raw) {
   o.raw = raw; o.kind = 'menu'; o.items = [];
   if (kind === 'receipt') {
     const rc = parseReceipt(raw);
-    if (rc.items.length || rc.total) { rc.match = matchReceiptRestaurant(rc, S.restaurants); o.kind = 'receipt'; o.rc = rc; }
+    if (rc.items.length || rc.total || rc.store || rc.date) { rc.match = matchReceiptRestaurant(rc, S.restaurants); rc.suggest = rc.match ? [] : suggestRestaurants(rc.store, S.restaurants); o.kind = 'receipt'; o.rc = rc; }
   }
-  if (o.kind === 'menu') o.items = parseMenuText(raw);
+  if (o.kind === 'menu') {
+    o.items = parseMenuText(raw);
+    const key = menuKey(LED.rid, (LED.place || '').trim());
+    if (key !== 'p:') for (const i of o.items) i.on = menuState(key, i.n, i.p).s === 'new';
+  }
   o.status = 'done';
 }
 async function runOcr(file) {
@@ -3960,6 +4103,7 @@ async function runOcr(file) {
 function rcSumText() {
   const rc = LED.ocr && LED.ocr.rc; if (!rc) return '';
   const sum = rc.items.filter(i => i.on).reduce((a, i) => a + (+i.unit || 0) * (+i.qty || 0), 0);
+  if (rc.guess) return '품목은 합계로 채운 추정값입니다. 단가와 수량을 확인해 주세요.';
   return `품목 합 ${won(sum)}원 · 영수증 합계 ${won(rc.total)}원 ${rc.total && sum === rc.total ? '✓ 일치' : rc.total ? '(다릅니다. 확인하세요)' : ''}`;
 }
 function ledRcptApply() {
@@ -3970,7 +4114,7 @@ function ledRcptApply() {
   if (rc.match) { D.place = rc.match.r.name; D.rid = rc.match.r.id; }
   else if (rc.store.trim()) { D.place = rc.store.trim(); const nv = normQ(D.place), r = nv ? S.restaurants.find(x => normQ(x.name) === nv) : null; D.rid = r ? r.id : null; }
   if (/^\d{4}-\d\d-\d\d$/.test(rc.date || '')) D.date = rc.date;
-  if (D.place.trim()) { for (const i of items) learnMenu(D.rid, D.place.trim(), i.name.trim(), +i.unit); save(); }
+  if (D.place.trim()) { const key = menuKey(D.rid, D.place.trim()); for (const i of items) menuPut(key, i.name.trim(), +i.unit, !!i.upd); save(); }
   D.rcTotal = rc.total || 0;
   const on = D.items.filter(x => x.on); let msg;
   if (items.length === 1 && on.length > 0 && on.length === +items[0].qty) {
@@ -4054,11 +4198,7 @@ function mergeSync(d) {
     if (!cur) { L.expenses.push(e); byid.set(e.id, e); if (!e.deleted) res.added++; }
     else if (e.updatedAt > (cur.updatedAt || 0)) { Object.assign(cur, e); res.updated++; }
   }
-  for (const [k, list] of Object.entries(d.ledger.menus && typeof d.ledger.menus === 'object' ? d.ledger.menus : {})) {
-    if (!Array.isArray(list)) continue;
-    const cur = L.menus[k] = L.menus[k] || [];
-    for (const m of list) { const n = str(m && m.n, 60), p = Math.round(+(m && m.p) || 0); if (n && p > 0 && !cur.some(x => x.n === n)) { cur.push({ n, p }); res.menus++; } }
-  }
+  res.menus += mergeMenus(L.menus, d.ledger.menus);
   for (const [mo, o] of Object.entries(d.ledger.settled && typeof d.ledger.settled === 'object' ? d.ledger.settled : {})) {
     if (!/^\d{4}-\d\d$/.test(mo) || !o || typeof o !== 'object') continue;
     const cur = L.settled[mo] = L.settled[mo] || {};
@@ -4087,7 +4227,7 @@ function mergeSync(d) {
   if (res.added || res.updated || res.people || res.menus || res.today) { invalidate(); save(); }
   return res;
 }
-const syncSummary = r => [r.added && `새 기록 ${r.added}건`, r.updated && `고친 기록 ${r.updated}건`, r.people && `사람 ${r.people}명`, r.today && '오늘 식당'].filter(Boolean).join(', ');
+const syncSummary = r => [r.added && `새 기록 ${r.added}건`, r.updated && `고친 기록 ${r.updated}건`, r.people && `사람 ${r.people}명`, r.menus && `메뉴판 ${r.menus}건`, r.today && '오늘 식당'].filter(Boolean).join(', ');
 
 async function syncPerm(ask) {
   const h = SYNC.handle; if (!h) return 'none';
@@ -4097,14 +4237,14 @@ async function syncPerm(ask) {
 }
 async function syncFolder(ask) {
   if (!SYNC.handle || SYNC.busy) return null;
-  SYNC.busy = true; let total = { added: 0, updated: 0, people: 0, today: false };
+  SYNC.busy = true; let total = { added: 0, updated: 0, people: 0, menus: 0, today: false };
   try {
     if (await syncPerm(ask) !== 'granted') return null;
     for await (const [name, fh] of SYNC.handle.entries()) {
       if (fh.kind !== 'file' || !name.startsWith(SYNC_PREFIX) || !name.endsWith('.json')) continue;
       let d; try { d = JSON.parse(await (await fh.getFile()).text()); } catch (e) { continue; }
       const r = mergeSync(d);
-      if (r) { total.added += r.added; total.updated += r.updated; total.people += r.people; total.today = total.today || r.today; }
+      if (r) { total.added += r.added; total.updated += r.updated; total.people += r.people; total.menus += r.menus; total.today = total.today || r.today; }
     }
     const payload = syncPayload(), hash = JSON.stringify({ ...payload, exportedAt: 0 });
     if (hash !== SYNC.lastHash) {
@@ -4114,7 +4254,7 @@ async function syncFolder(ask) {
     SYNC.last = new Date(); SYNC.err = '';
   } catch (e) { SYNC.err = String((e && e.message) || e); }
   finally { SYNC.busy = false; }
-  if (total.added || total.updated || total.people || total.today) renderAll(); else { if (App.tab === 'settings') renderSettings(); if (App.tab === 'ledger') renderLedger(); }
+  if (total.added || total.updated || total.people || total.menus || total.today) renderAll(); else { if (App.tab === 'settings') renderSettings(); if (App.tab === 'ledger') renderLedger(); }
   return total;
 }
 function scheduleSync() { if (SYNC.busy || !SYNC.handle || SYNC.perm !== 'granted') return; clearTimeout(SYNC.timer); SYNC.timer = setTimeout(() => syncFolder(false), 1500); }
@@ -4135,8 +4275,8 @@ async function syncExport() {
 }
 function syncImportFiles(files) {
   Promise.all(Array.from(files).map(f => f.text().then(t => { try { return JSON.parse(t); } catch (e) { return null; } }))).then(list => {
-    const sum = { added: 0, updated: 0, people: 0, today: false }; let ok = 0;
-    for (const d of list) { const r = mergeSync(d); if (r) { ok++; sum.added += r.added; sum.updated += r.updated; sum.people += r.people; sum.today = sum.today || r.today; } }
+    const sum = { added: 0, updated: 0, people: 0, menus: 0, today: false }; let ok = 0;
+    for (const d of list) { const r = mergeSync(d); if (r) { ok++; sum.added += r.added; sum.updated += r.updated; sum.people += r.people; sum.menus += r.menus; sum.today = sum.today || r.today; } }
     if (!ok) { toast('점심반장 정산 파일이 아닙니다.'); return; }
     renderAll(); toast(syncSummary(sum) ? '합쳤습니다: ' + syncSummary(sum) : '이미 같은 내용입니다.');
   });
@@ -4190,22 +4330,46 @@ const actions = {
   ledScale,
   ledMenuPick: el => { LED.pickTarget = el.dataset.i === 'all' ? 'all' : +el.dataset.i; LED.view = 'pick'; ledRender(); },
   ledPickItem: el => { const s = menuSuggest(LED.rid, LED.place)[+el.dataset.k]; if (s) ledApplyMenu(s.n, s.p || 0); },
-  ledPickManual: () => { const n = $('#pkN').value.trim(), p = num($('#pkP').value); if (!n) { toast('메뉴 이름을 적어 주세요.'); return; } if (p > 0 && LED.place.trim()) { learnMenu(LED.rid, LED.place.trim(), n, p); save(); } ledApplyMenu(n, p); },
+  ledPickManual: () => { const n = $('#pkN').value.trim(), p = num($('#pkP').value); if (!n) { toast('메뉴 이름을 적어 주세요.'); return; } const key = menuKey(LED.rid, LED.place.trim()), db = LED.place.trim() ? menuFind(key, n) : null, price = p || (db ? db.p : 0);
+    let note = '';
+    if (price > 0 && LED.place.trim()) { const r = menuPut(key, n, price, false); if (r === 'kept' && db && db.p !== price) note = `메뉴판 가격(${won(db.p)}원)은 그대로 두었습니다.`; save(); }
+    ledApplyMenu(n, price); if (note) toast(note);
+  },
   ledPickClear: () => { const D = LED, list = D.pickTarget === 'all' ? D.items.filter(i => i.on) : [D.items[D.pickTarget]].filter(Boolean); for (const i of list) i.menu = ''; D.view = 'main'; ledRender(); },
   ledPickBack: () => { LED.view = (LED.view === 'ocr' && !(LED.ocr && LED.ocr.kind === 'receipt')) ? 'pick' : 'main'; ledRender(); },
   ledRcptApply,
+  ledRcPick: el => { const rc = LED.ocr && LED.ocr.rc, s = rc && rc.suggest && rc.suggest[+el.dataset.k]; if (!s) return; rc.match = { r: s.r, sc: 0, why: ['이름 비슷'] }; rc.store = s.r.name; rc.suggest = []; ledRender(); },
   ledRcUnlink: () => { if (LED.ocr && LED.ocr.rc) { LED.ocr.rc.match = null; ledRender(); } },
   ledPasteOpen: () => { LED.view = 'paste'; ledRender(); },
   ledPasteRead: () => { const txt = ($('#pasteTxt').value || '').trim(); if (!txt) { toast('글을 붙여 넣어 주세요.'); return; } LED.ocr = { status: 'done', msg: '', pct: 100, items: [], raw: '', kind: 'menu' }; ocrInterpret(txt); LED.view = 'ocr'; ledRender(); },
   ledPlacePick: el => ledPlaceChoose(+el.dataset.k),
   ledPlaceNew: () => { if (LED.sug) LED.sug.open = false; const ul = $('#ledSug'); if (ul) ul.hidden = true; ledPlaceUI(false); },
   ledOcrCancel: () => { ocrToken++; LED.view = 'main'; ledRender(); },
-  ledOcrAdd: () => { const D = LED, items = ((D.ocr && D.ocr.items) || []).filter(i => i.on && i.n.trim() && i.p > 0); if (!items.length) { toast('등록할 메뉴가 없습니다.'); return; } if (!D.place.trim()) { toast('장소를 먼저 적어 주세요.'); return; } for (const i of items) learnMenu(D.rid, D.place.trim(), i.n.trim(), i.p); save(); toast(`메뉴 ${items.length}개를 등록했습니다.`); D.view = 'pick'; ledRender(); },
+  ledOcrAdd: () => { const D = LED, items = ((D.ocr && D.ocr.items) || []).filter(i => i.on && i.n.trim() && i.p > 0); if (!items.length) { toast('등록할 메뉴가 없습니다.'); return; } if (!D.place.trim()) { toast('장소를 먼저 적어 주세요.'); return; } const key = menuKey(D.rid, D.place.trim()); let a = 0, c = 0, k = 0;
+    for (const i of items) { const r = menuPut(key, i.n, i.p, true); if (r === 'added') a++; else if (r === 'changed') c++; else k++; }
+    save(); toast(`새 메뉴 ${a}개${c ? `, 가격 변경 ${c}개` : ''}${k ? `, 이미 있는 ${k}개는 그대로` : ''}`); D.view = 'pick'; ledRender();
+  },
   ledPayer: el => { const D = LED; D.payer = D.payer === el.dataset.name ? '' : el.dataset.name; if (!D.payer || D.payer === treasurerName()) D.reimbursedAt = null; ledRender(); },
   ledRemovePerson: el => { const k = +el.dataset.i, it = LED.items[k]; if (!it) return; if (S.roster.some(m => m.name === it.name)) { LED.delIdx = k; LED.view = 'delperson'; ledRender(); } else { LED.items.splice(k, 1); ledRender(); } },
   ledDelPersonRoster: () => { const it = LED.items[LED.delIdx]; if (it) { S.roster = S.roster.filter(m => m.name !== it.name); LED.items.splice(LED.delIdx, 1); save(); renderToday(); } LED.view = 'main'; ledRender(); },
-  ledDelPersonRow: () => { LED.items.splice(LED.delIdx, 1); LED.view = 'main'; ledRender(); },  ledMenuAdd: () => { const n = $('#lmN').value.trim(), p = num($('#lmP').value); if (!n || !p) { toast('메뉴 이름과 가격을 적어 주세요.'); return; } learnMenu(LED.rid, LED.place.trim(), n, p); save(); LED.boardOpen = true; ledRender(); },
-  ledMenuDel: el => { const list = S.ledger.menus[menuKey(LED.rid, LED.place.trim())]; if (list) { list.splice(+el.dataset.k, 1); save(); } LED.boardOpen = true; ledRender(); },
+  ledDelPersonRow: () => { LED.items.splice(LED.delIdx, 1); LED.view = 'main'; ledRender(); },  ledMenuAdd: () => {
+    const n = $('#lmN').value.trim(), p = num($('#lmP').value); if (!n || !p) { toast('메뉴 이름과 가격을 적어 주세요.'); return; }
+    const key = menuKey(LED.rid, LED.place.trim()), ex = menuFind(key, n), r = menuPut(key, n, p, false);
+    if (r === 'kept') toast(`이미 있는 메뉴입니다(${won(ex.p)}원). 가격은 목록에서 직접 고치세요.`); else { save(); toast('메뉴판에 추가했습니다.'); }
+    LED.boardOpen = true; ledBoardRefresh();
+  },
+  ledMenuDel: el => {
+    if (el.dataset.key) { menuRemove(el.dataset.key, el.dataset.mid); MG.open = el.dataset.key; mgListRefresh(); return; }
+    menuRemove(menuKey(LED.rid, LED.place.trim()), el.dataset.mid); LED.boardOpen = true; ledBoardRefresh();
+  },
+  mgOpen: () => { LED = null; openMenus(); },
+  mgAdd: el => {
+    const det = el.closest('details'), n = det.querySelector('.mgN').value.trim(), p = num(det.querySelector('.mgP').value);
+    if (!n || !p) { toast('메뉴 이름과 가격을 적어 주세요.'); return; }
+    const ex = menuFind(el.dataset.key, n), r = menuPut(el.dataset.key, n, p, false);
+    if (r === 'kept') { toast(`이미 있는 메뉴입니다(${won(ex.p)}원). 가격은 목록에서 직접 고치세요.`); return; }
+    save(); MG.open = el.dataset.key; mgListRefresh(); toast('메뉴판에 추가했습니다.');
+  },
   ledSave,
   ledAskDelete: () => openModal(`<h2>기록 지우기</h2><p>이 식비 기록을 지웁니다. 사람별 합계에서도 빠집니다.</p><div class="dlg-actions"><span class="grow"></span><button type="button" class="btn" data-action="ledBack">돌아가기</button><button type="button" class="btn seal" data-action="ledDoDelete">지우기</button></div>`),
   ledBack: () => ledRender(true),
