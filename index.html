@@ -2515,6 +2515,31 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const APP_ID = 'seobu-lunch-manager';
 const STORE_KEY = 'seobu-lunch-manager/v1';
 const SEED_DATE = '2026-10-02';
+// 영수증으로 확인한 메뉴와 단가(2026-10). 이미 있거나 사용자가 지운 메뉴는 건드리지 않고, 없는 것만 한 번 넣는다.
+const SEED_MENUS_VER = 1;
+const SEED_MENUS = [
+  { place: '숨브루커피', items: [['슈라떼', 6000], ['연유카라멜라떼hot', 5000], ['피넛 라떼 ice', 5500], ['피넛 라떼 hot', 5500], ['라떼hot', 3500], ['슈크림라떼hot', 5500]] },
+  { place: '신수원숯불갈비식당', items: [['비빔밥', 9000]] },
+  { place: '이디야커피', items: [['HOT카페모카', 4500], ['ICED아메리카노', 3200]] },
+  { place: '투썸플레이스', items: [['오트 화이트 라떼 디카R', 5800], ['바닐라빈라떼R', 6000], ['ice바닐라빈라떼R', 6000], ['카페 라떼R', 5200], ['ice카페 라떼R', 5200]] },
+  { place: '만나한우암소설렁탕', items: [['한우암소설렁탕', 8000]] },
+  { place: '윤순대', items: [['순대만국밥', 9000], ['내장국밥', 9000]] },
+  { place: '온데이', items: [['카페라떼(HOT)', 5000], ['카페라떼(ICE)', 5500], ['바닐라라떼(ICE)', 5500], ['연유라떼(ICE)', 5500], ['카페모카 (HOT)', 5000], ['아메리카노(ICE)', 3500], ['레몬마들렌', 2000]] },
+  { place: '도마칼국수', items: [['묵은지생갈비찜', 11000]] },
+];
+function seedMenus(s) {
+  const L = s.ledger; if (!L || (L.seedVer || 0) >= SEED_MENUS_VER) return;
+  for (const g of SEED_MENUS) {
+    const r = s.restaurants.find(x => menuNorm(x.name) === menuNorm(g.place));
+    const key = r ? r.id : 'p:' + g.place.replace(/\s+/g, '');
+    const list = L.menus[key] = L.menus[key] || [];
+    for (const [n, p] of g.items) {
+      if (list.some(m => menuNorm(m.n) === menuNorm(n))) continue;
+      list.push({ id: menuIdFor(key, n), n, p, u: 0, d: false });
+    }
+  }
+  L.seedVer = SEED_MENUS_VER;
+}
 const WALK_M_PER_MIN = 60; // 초속 1.0m: 보행신호 시간 산정 기준 속도
 const CATS = ['한식', '국밥·탕', '면', '고기', '중식', '일식', '분식', '양식', '기타'];
 const GLYPH = { '한식': '한', '국밥·탕': '국', '면': '면', '고기': '고', '중식': '중', '일식': '일', '분식': '분', '양식': '양', '기타': '기' };
@@ -2578,6 +2603,7 @@ function normalize(s) {
   for (const r of SEED_RESTAURANTS) if (!s.seedSeen.includes(r.id)) { s.seedSeen.push(r.id); if (!s.restaurants.some(x => x.id === r.id)) s.restaurants.push(seedToRestaurant(r)); }
   // 기본 식당의 위치가 고쳐지면 저장된 목록에도 반영한다(사용자가 지도에서 직접 지정한 위치는 건드리지 않는다).
   for (const r of SEED_RESTAURANTS) { const cur = s.restaurants.find(x => x.id === r.id); if (cur && cur.loc !== 'manual' && r.x != null && (cur.x !== r.x || cur.y !== r.y)) { cur.x = r.x; cur.y = r.y; cur.loc = r.loc || 'rule'; } }
+  seedMenus(s);
   s.app = APP_ID;
   return s;
 }
