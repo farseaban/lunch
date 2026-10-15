@@ -296,6 +296,39 @@ p{margin:0}
 #map .op-glyph{font:800 12px var(--f-seal);fill:var(--seal-ink)}
 #map .op-name{font:700 12.5px var(--f-body);fill:var(--seal-text);paint-order:stroke;stroke:var(--m-halo);stroke-width:3.6px;stroke-linejoin:round}
 
+/* 정산 */
+.led-month{display:flex;align-items:center;justify-content:center;gap:14px}
+.led-month b{font:400 22px/1 var(--f-display);min-width:120px;text-align:center}
+.led-sum2{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.led-sum2 div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column}
+.led-sum2 span{font-size:11.5px;color:var(--ink-3)}
+.led-sum2 b{font:400 20px/1.2 var(--f-display);font-variant-numeric:tabular-nums}
+.led-tot,.led-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.led-tot li{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+.led-tot li.is-paid .nm,.led-tot li.is-paid b{color:var(--ink-3)}
+.led-tot b,.led-list b{font-variant-numeric:tabular-nums}
+.led-tot .led-total{grid-template-columns:minmax(0,1fr) auto auto;border-bottom:0;font-weight:700}
+.led-chk{width:28px;height:28px;border-radius:8px;border:1.5px solid var(--line-2);background:var(--surface);color:var(--go);font-weight:800;cursor:pointer;line-height:1;padding:0}
+.led-chk[aria-pressed="true"]{border-color:var(--go)}
+.led-list li{display:grid;grid-template-columns:64px minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.led-list .d{color:var(--ink-3);font-size:12.5px;font-variant-numeric:tabular-nums}
+.led-list .nm{display:flex;flex-direction:column;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.led-list .nm small{color:var(--ink-3);font-size:12px}
+.led-item{cursor:pointer}
+.led-people{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.led-people li{display:grid;grid-template-columns:minmax(64px,auto) minmax(0,1fr) 92px;gap:6px;align-items:center}
+.led-people li.is-off .led-menu,.led-people li.is-off .led-amt{opacity:.45}
+.led-menu,.led-amt,.led-bulk input,#ledNew,#lmN,#lmP{height:38px;border:1px solid var(--line-2);border-radius:9px;padding:0 10px;background:var(--surface);min-width:0}
+.led-amt{text-align:right;font-variant-numeric:tabular-nums}
+.led-bulk{flex-wrap:nowrap}.led-bulk input{flex:1}
+.led-add{margin-top:8px}.led-add input{flex:1}
+.led-total2{margin-top:12px;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.led-total2 b{font:400 22px/1 var(--f-display);font-variant-numeric:tabular-nums}
+.led-board{margin-top:12px;border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.led-board summary{cursor:pointer;font-weight:600;font-size:13px}
+.led-board ul{list-style:none;margin:8px 0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.led-board li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center}
+@media (max-width:520px){.dialog{padding:16px}}
 /* 대화상자·알림 */
 .modal{position:fixed;inset:0;background:rgba(12,17,21,.45);display:grid;place-items:center;padding:16px;z-index:50}
 .dialog{width:min(580px,100%);max-height:calc(100% - 16px);overflow:auto;background:var(--surface);border-radius:16px;border:1px solid var(--line);box-shadow:0 20px 50px rgba(0,0,0,.28);padding:20px}
@@ -327,6 +360,7 @@ p{margin:0}
       <button role="tab" data-tab="today" aria-selected="true">오늘</button>
       <button role="tab" data-tab="map" class="only-narrow" aria-selected="false">지도</button>
       <button role="tab" data-tab="list" aria-selected="false">식당</button>
+      <button role="tab" data-tab="ledger" aria-selected="false">정산</button>
       <button role="tab" data-tab="settings" aria-selected="false">설정</button>
     </nav>
   </header>
@@ -334,6 +368,7 @@ p{margin:0}
     <section class="panel" aria-label="결정 패널">
       <div class="view" id="view-today"></div>
       <div class="view" id="view-list" hidden></div>
+      <div class="view" id="view-ledger" hidden></div>
       <div class="view" id="view-settings" hidden></div>
     </section>
     <section class="mapwrap" aria-label="청사 주변 지도">
@@ -2483,7 +2518,7 @@ function seedToRestaurant(r) {
     guess: !!r.guess, reserve: false, capacity: null, closed: [], note: ''
   };
 }
-const defaultSettings = () => ({ cooldown: 10, walkLimit: 12, nearLimit: 7, avoidSameCat: true, excludedCats: [], depart: '12:00', meet: '1층 현관', notice: DEFAULT_NOTICE, excel: DEFAULT_EXCEL });
+const defaultSettings = () => ({ cooldown: 10, walkLimit: 12, nearLimit: 7, avoidSameCat: true, excludedCats: [], depart: '12:00', meet: '1층 현관', notice: DEFAULT_NOTICE, excel: DEFAULT_EXCEL, treasurer: '', bank: '' });
 const defaultState = () => ({ app: APP_ID, version: 1, createdAt: TODAY, restaurants: SEED_RESTAURANTS.map(seedToRestaurant), visits: [], roster: [], absent: {}, guests: {}, counts: {}, days: {}, settings: defaultSettings(), lastBackup: null });
 function normalize(s) {
   s.settings = Object.assign(defaultSettings(), s.settings || {});
@@ -2494,6 +2529,9 @@ function normalize(s) {
     for (const dt of Object.keys(s[k])) if (!/^\d{4}-\d\d-\d\d$/.test(dt) || dayDiff(dt, TODAY) > 60) delete s[k][dt];
   }
   for (const r of s.restaurants) { if (!Array.isArray(r.closed)) r.closed = []; if (!CATS.includes(r.cat)) r.cat = '기타'; }
+  if (!s.ledger || typeof s.ledger !== 'object') s.ledger = {};
+  if (!Array.isArray(s.ledger.expenses)) s.ledger.expenses = [];
+  for (const k of ['menus', 'settled']) if (!s.ledger[k] || typeof s.ledger[k] !== 'object') s.ledger[k] = {};
   // 기본 목록에 새로 생긴 식당을 저장된 목록에 합친다(이미 지운 식당은 다시 넣지 않는다).
   if (!Array.isArray(s.seedSeen)) s.seedSeen = SEED_RESTAURANTS.filter(r => /^s\d+$/.test(r.id)).map(r => r.id);
   for (const r of SEED_RESTAURANTS) if (!s.seedSeen.includes(r.id)) { s.seedSeen.push(r.id); if (!s.restaurants.some(x => x.id === r.id)) s.restaurants.push(seedToRestaurant(r)); }
@@ -2762,12 +2800,15 @@ function ticketHtml(day, r, confirmed) {
 function shareHtml(r) {
   const visit = S.visits.find(v => v.date === TODAY);
   const cells = excelLine(r).split('\t');
+  const led = ledExpenses().find(e => e.date === TODAY && e.kind === 'meal');
   return `<section class="sec"><div class="sec-h"><h3>공지문</h3><span>고쳐 쓴 뒤 복사해도 됩니다</span></div>
       <textarea id="noticeText" class="notice-text" rows="4">${esc(fillNotice(r))}</textarea>
       <div class="row"><button type="button" class="btn seal" data-action="copyNotice">공지문 복사</button><button type="button" class="btn" data-action="copyBoth">공지문 + 엑셀 한 줄 함께 복사</button>${r.tel ? `<button type="button" class="btn" data-action="copyTel" data-tel="${esc(r.tel)}">예약 전화번호 복사</button>` : ''}</div></section>
     <section class="sec"><div class="sec-h"><h3>엑셀 기록용 한 줄</h3><span>엑셀의 날짜 칸을 누르고 붙여 넣기</span></div>
       <div class="xline">${cells.map(c => `<span>${esc(c) || '&nbsp;'}</span>`).join('')}</div>
       <div class="row"><button type="button" class="btn" data-action="copyExcel">엑셀용 한 줄 복사</button></div></section>
+    <section class="sec"><div class="sec-h"><h3>식비 정산 기록</h3><span>${led ? '기록함' : '먹은 메뉴와 금액을 남겨 두세요'}</span></div>
+      <div class="row"><button type="button" class="btn seal" data-action="ledgerToday">${led ? '기록 수정' : '식비 기록하기'}</button>${led ? `<span class="muted small">합계 ${won(expSum(led))}원</span>` : ''}</div></section>
     <section class="sec"><div class="sec-h"><h3>다녀와서 평가</h3><span>다음 추천에 반영됩니다</span></div>${rateButtons(TODAY, visit && visit.rating)}</section>`;
 }
 function peopleHtml() {
@@ -2876,6 +2917,10 @@ function renderSettings() {
   <section class="sec"><div class="sec-h"><h3>엑셀 한 줄 서식</h3></div>
     <div class="form"><label class="full">서식 ( | 표시가 칸 나누기)<input data-set="excel" value="${esc(s.excel)}"></label></div>
     <p class="muted small">넣을 수 있는 칸: {날짜} {식당} {종류} {메뉴} {인원} {참석자}. 매일 쓰는 엑셀 표의 열 순서에 맞추세요.</p></section>
+  <section class="sec"><div class="sec-h"><h3>정산 설정</h3></div>
+    <div class="form"><label>총무 이름<input data-set="treasurer" list="rosterNames" value="${esc(s.treasurer)}" placeholder="예: 홍길동" autocomplete="off"></label><label>입금 계좌 안내<input data-set="bank" value="${esc(s.bank)}" placeholder="예: 농협 123-45-678901" autocomplete="off"></label></div>
+    <datalist id="rosterNames">${S.roster.map(m => `<option value="${esc(m.name)}"></option>`).join('')}</datalist>
+    <p class="muted small">정산 기록(이름·메뉴·금액)은 이 기기의 브라우저와 인수인계 파일에만 저장됩니다. 총무가 아닌 분이 먼저 결제하면 「대결」로 표시되고, 총무가 송금하면 「송금완료」를 눌러 두세요.</p></section>
   <section class="sec"><div class="sec-h"><h3>인수인계</h3><span>${S.lastBackup ? '마지막 저장 ' + fmtMD(S.lastBackup) : '아직 저장 안 함'}</span></div>
     <p class="muted small">식당 목록·방문 기록·명단·설정을 파일 하나로 저장합니다. 후임자는 이 앱 파일과 인수인계 파일만 받으면 그대로 이어서 쓸 수 있습니다.</p>
     <div class="row"><button type="button" class="btn seal" data-action="exportFile">인수인계 파일 저장</button><button type="button" class="btn" data-action="exportCopy">내용 복사</button></div>
@@ -3262,7 +3307,7 @@ function openModal(html, onMount) {
   if (f) f.focus();
   if (onMount) onMount(d);
 }
-function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; editing = null; pasteState = null; }
+function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; editing = null; pasteState = null; LED = null; }
 let toastTimer = 0;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2600); }
 function copyText(text, ok) {
@@ -3280,8 +3325,9 @@ function setTab(t) {
   $('#app').dataset.tab = t;
   $$('.tabs [data-tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
   const panel = t === 'map' ? 'today' : t;
-  for (const v of ['today', 'list', 'settings']) $('#view-' + v).hidden = v !== panel;
+  for (const v of ['today', 'list', 'ledger', 'settings']) $('#view-' + v).hidden = v !== panel;
   if (t === 'list') renderListItems();
+  if (t === 'ledger') renderLedger();
   if (t === 'settings') renderSettings();
   requestAnimationFrame(MapView.update);
 }
@@ -3290,6 +3336,7 @@ function renderAll() {
   $('#todayLabel').textContent = fmtLong(TODAY);
   renderToday(); renderListItems();
   if (App.tab === 'settings') renderSettings();
+  if (App.tab === 'ledger') renderLedger();
   MapView.refreshPins();
   if (App.sel) { if (byId(App.sel)) { showDetail(App.sel); MapView.showRoute(byId(App.sel)); } else App.select(null); }
 }
@@ -3311,6 +3358,212 @@ function setPick(id, note) {
   save(); renderAll();
 }
 
+/* ---------- 정산(식비 기록) ---------- */
+const num = v => parseInt(String(v == null ? '' : v).replace(/[^0-9]/g, ''), 10) || 0;
+const won = n => (Math.round(n) || 0).toLocaleString('ko-KR');
+const fmtMDs = s => { const d = parseYmd(s); return (d.getMonth() + 1) + '.' + d.getDate() + '.'; };
+const LED_KINDS = [['meal', '점심'], ['cafe', '커피·간식'], ['etc', '기타']];
+const kindLabel = k => (LED_KINDS.find(x => x[0] === k) || LED_KINDS[2])[1];
+const LG = { month: TODAY.slice(0, 7) };
+const treasurerName = () => (S.settings.treasurer || '').trim();
+function ledExpenses(month) {
+  return S.ledger.expenses.filter(e => !e.deleted && (!month || e.date.slice(0, 7) === month))
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt || 0) - (b.createdAt || 0));
+}
+const expSum = e => e.items.reduce((a, it) => a + (it.amount || 0), 0);
+const expPaid = e => (e.paid != null ? e.paid : expSum(e));
+function monthPeople(list) {
+  const seen = [];
+  for (const e of list) for (const it of e.items) if (!seen.includes(it.name)) seen.push(it.name);
+  const order = S.roster.map(m => m.name);
+  return [...order.filter(n => seen.includes(n)), ...seen.filter(n => !order.includes(n))];
+}
+function personTotals(list) { const t = {}; for (const e of list) for (const it of e.items) t[it.name] = (t[it.name] || 0) + (it.amount || 0); return t; }
+const menuKey = (rid, place) => rid || 'p:' + String(place || '').replace(/\s+/g, '');
+function menuSuggest(rid, place) {
+  const board = (S.ledger.menus[menuKey(rid, place)] || []).map(m => ({ n: m.n, p: m.p }));
+  const r = rid && byId(rid);
+  if (r && r.menu) for (const n of r.menu.split(/[,，、]/).map(x => x.trim()).filter(Boolean)) if (!board.some(b => b.n === n)) board.push({ n, p: null });
+  return board;
+}
+function learnMenu(rid, place, name, price) {
+  const key = menuKey(rid, place);
+  if (!name || !(price > 0) || key === 'p:') return;
+  const list = S.ledger.menus[key] = S.ledger.menus[key] || [];
+  const ex = list.find(m => m.n === name);
+  if (ex) ex.p = price; else list.push({ n: name, p: price });
+}
+function ledNote(e) {
+  const t = treasurerName(), parts = [];
+  if (e.payer) {
+    let s = '결재: ' + e.payer;
+    if (t && e.payer !== t) s += `, 대결 ${won(expPaid(e))}원 (${e.reimbursedAt ? fmtMDs(e.reimbursedAt) + ' 송금완료' : '송금 전'})`;
+    parts.push(s);
+  }
+  if (e.note) parts.push(e.note);
+  return parts.join(' ');
+}
+function ledTable(month) {
+  const list = ledExpenses(month), people = monthPeople(list), tot = personTotals(list);
+  const head = ['날짜', '요일', ...people, '계', '음식점', '지불금액', '비고'];
+  const rows = list.map(e => {
+    const d = parseYmd(e.date);
+    const cells = people.map(n => e.items.filter(i => i.name === n).reduce((a, i) => a + i.amount, 0) || '');
+    return [fmtMDs(e.date), WEEK[d.getDay()], ...cells, expSum(e), e.place, expPaid(e), ledNote(e)];
+  });
+  const grand = people.reduce((a, n) => a + tot[n], 0), paid = list.reduce((a, e) => a + expPaid(e), 0);
+  const foot = ['계', '', ...people.map(n => tot[n] || 0), grand, '-', paid, ''];
+  return [head, ...rows, foot].map(r => r.join('\t')).join('\n');
+}
+function ledBill(month, name) {
+  const [y, m] = month.split('-'), list = ledExpenses(month).filter(e => e.items.some(i => i.name === name));
+  const lines = list.map(e => `${fmtMDs(e.date)} ${e.place}  ${won(e.items.filter(i => i.name === name).reduce((a, i) => a + i.amount, 0))}원`);
+  const total = list.reduce((a, e) => a + e.items.filter(i => i.name === name).reduce((b, i) => b + i.amount, 0), 0);
+  const pay = [S.settings.bank, treasurerName() && `(${treasurerName()})`].filter(Boolean).join(' ');
+  return `[${y}년 ${+m}월 식비 정산] ${name}님 ${won(total)}원\n` + lines.join('\n') + (pay ? `\n입금: ${pay}` : '');
+}
+function ledBills(month) {
+  const [y, m] = month.split('-'), list = ledExpenses(month), tot = personTotals(list), people = monthPeople(list);
+  const pay = [S.settings.bank, treasurerName() && `(${treasurerName()})`].filter(Boolean).join(' ');
+  return `[${y}년 ${+m}월 식비 정산 안내]\n` + people.map(n => `${n}: ${won(tot[n])}원`).join('\n') + `\n합계 ${won(people.reduce((a, n) => a + tot[n], 0))}원` + (pay ? `\n입금: ${pay}` : '');
+}
+
+/* 정산 화면 */
+function renderLedger() {
+  const v = $('#view-ledger'); if (!v) return;
+  const month = LG.month, [y, m] = month.split('-');
+  const list = ledExpenses(month), people = monthPeople(list), tot = personTotals(list);
+  const grand = people.reduce((a, n) => a + tot[n], 0), paidSum = list.reduce((a, e) => a + expPaid(e), 0);
+  const settled = S.ledger.settled[month] || {}, t = treasurerName();
+  const pending = ledExpenses().filter(e => e.payer && t && e.payer !== t && !e.reimbursedAt);
+  const day = getDay(), todayR = day.confirmedAt && byId(day.pick);
+  const todayRec = ledExpenses().find(e => e.date === TODAY && e.kind === 'meal');
+  const paidCnt = people.filter(n => settled[n]).length;
+  v.innerHTML = `
+    <div class="led-month"><button type="button" class="btn sm" data-action="ledMonth" data-d="-1" aria-label="이전 달">◀</button><b>${y}년 ${+m}월</b><button type="button" class="btn sm" data-action="ledMonth" data-d="1" aria-label="다음 달">▶</button></div>
+    ${!t || !S.settings.bank ? `<div class="notice"><p>총무 이름과 입금 계좌를 적어 두면 정산 안내와 대결 처리가 편해집니다.</p><button class="btn sm" data-action="tab" data-tab="settings">설정 열기</button></div>` : ''}
+    <section class="sec"><div class="led-sum2"><div><span>이번 달 합계</span><b>${won(grand)}원</b></div><div><span>기록</span><b>${list.length}건</b></div><div><span>입금</span><b>${paidCnt}/${people.length}</b></div></div>
+      <div class="row"><button type="button" class="btn seal" data-action="${todayRec ? 'ledgerToday' : 'ledNew'}" data-kind="meal">${todayRec ? '오늘 점심 기록 수정' : todayR ? `오늘 점심 기록 · ${esc(todayR.name)}` : '＋ 점심 기록'}</button><button type="button" class="btn" data-action="ledNew" data-kind="cafe">＋ 커피·간식</button><button type="button" class="btn ghost" data-action="ledNew" data-kind="etc">＋ 기타</button></div></section>
+    ${people.length ? `<section class="sec"><div class="sec-h"><h3>사람별 합계</h3><span>눌러서 입금 표시</span></div>
+      <ul class="led-tot">${people.map(n => `<li class="${settled[n] ? 'is-paid' : ''}"><button type="button" class="led-chk" aria-pressed="${!!settled[n]}" data-action="ledPaidToggle" data-name="${esc(n)}" aria-label="${esc(n)} 입금 완료 표시">${settled[n] ? '✓' : ''}</button><span class="nm">${esc(n)}</span><b>${won(tot[n])}원</b><button type="button" class="link" data-action="ledCopyOne" data-name="${esc(n)}">문구 복사</button></li>`).join('')}
+        <li class="led-total"><span class="nm">합계</span><b>${won(grand)}원</b>${paidSum !== grand ? `<span class="muted small">결제액 ${won(paidSum)}원</span>` : ''}</li></ul>
+      <div class="row"><button type="button" class="btn" data-action="ledCopyBills">정산 안내 복사</button><button type="button" class="btn" data-action="ledCopyTable">엑셀 표 복사</button></div></section>` : '<p class="muted small">이 달에 기록한 식비가 없습니다. 위 버튼으로 먹은 사람별 금액을 남겨 두면 한 달 합계가 사람별로 쌓입니다.</p>'}
+    ${pending.length ? `<section class="sec"><div class="sec-h"><h3>총무가 보낼 돈 (대결)</h3><span>${t}님이 아닌 분이 먼저 결제한 건</span></div>
+      <ul class="led-list">${pending.map(e => `<li><span class="d">${fmtMD(e.date)}</span><span class="nm">${esc(e.place)} · 결재 ${esc(e.payer)}</span><b>${won(expPaid(e))}원</b><button type="button" class="btn sm" data-action="ledReimburse" data-id="${e.id}">송금완료</button></li>`).join('')}</ul></section>` : ''}
+    ${list.length ? `<section class="sec"><div class="sec-h"><h3>내역</h3><span>눌러서 수정</span></div>
+      <ul class="led-list">${list.slice().reverse().map(e => `<li class="led-item" data-action="ledEdit" data-id="${e.id}" tabindex="0" role="button"><span class="d">${fmtMD(e.date)}</span><span class="nm">${esc(e.place)}<small>${kindLabel(e.kind)} · ${e.items.length}명${e.payer && t && e.payer !== t ? ` · 결재 ${esc(e.payer)}` : ''}</small></span><b>${won(expPaid(e))}원</b></li>`).join('')}</ul></section>` : ''}`;
+}
+
+/* 기록 입력 창 */
+let LED = null;
+function openLedger(id, preset) {
+  const p = preset || {};
+  let D;
+  if (id) {
+    const e = S.ledger.expenses.find(x => x.id === id); if (!e) return;
+    D = { id: e.id, date: e.date, kind: e.kind, rid: e.rid || null, place: e.place, payer: e.payer || '', paid: e.paid === expSum(e) ? '' : String(e.paid), note: e.note || '', reimbursedAt: e.reimbursedAt || null, bulk: '', orig: expSum(e),
+      items: e.items.map(i => ({ name: i.name, on: true, menu: i.menu || '', amount: String(i.amount), auto: false })) };
+    for (const m of S.roster) if (!D.items.some(i => i.name === m.name)) D.items.push({ name: m.name, on: false, menu: '', amount: '', auto: false });
+  } else {
+    const kind = p.kind || 'meal', day = getDay(), r = kind === 'meal' && day.confirmedAt && byId(day.pick), ab = S.absent[TODAY] || [];
+    D = { id: null, date: TODAY, kind, rid: r ? r.id : null, place: r ? r.name : '', payer: treasurerName(), paid: '', note: '', reimbursedAt: null, bulk: '', orig: 0,
+      items: S.roster.map(m => ({ name: m.name, on: !ab.includes(m.id), menu: '', amount: '', auto: false })) };
+  }
+  LED = D; ledRender(true);
+}
+function ledSums() {
+  const D = LED, on = D.items.filter(i => i.on && num(i.amount) > 0), sum = on.reduce((a, i) => a + num(i.amount), 0);
+  return { on, sum, paid: D.paid ? num(D.paid) : sum };
+}
+function ledRender(first) {
+  const D = LED, sug = menuSuggest(D.rid, D.place), t = treasurerName();
+  const payers = [...new Set([t, ...S.roster.map(m => m.name), D.payer].filter(Boolean))];
+  const board = S.ledger.menus[menuKey(D.rid, D.place)] || [];
+  const html = `<h2>${D.id ? '식비 수정' : '식비 기록'}</h2>
+    <div class="form led-form">
+      <label>날짜<input type="date" data-led="date" value="${esc(D.date)}"></label>
+      <label>종류<select data-led="kind">${LED_KINDS.map(([k, l]) => `<option value="${k}"${k === D.kind ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="full">장소<input data-led="place" list="ledPlaces" value="${esc(D.place)}" placeholder="식당·카페 이름" autocomplete="off"></label>
+      <datalist id="ledPlaces">${S.restaurants.map(r => `<option value="${esc(r.name)}"></option>`).join('')}</datalist>
+      <datalist id="ledMenus">${sug.map(s => `<option value="${esc(s.n)}">${s.p ? won(s.p) + '원' : ''}</option>`).join('')}</datalist>
+    </div>
+    <div class="sec-h" style="margin-top:14px"><h3>먹은 사람</h3><span>이름을 눌러 켜고 끄세요</span></div>
+    ${S.roster.length ? '' : '<p class="muted small">설정 › 명단에 사람을 등록해 두면 여기에 자동으로 나옵니다. 지금은 아래에서 이름을 직접 추가하세요.</p>'}
+    <div class="row led-bulk"><input data-led="bulk" list="ledMenus" value="${esc(D.bulk)}" placeholder="켜진 모두에게 같은 메뉴" autocomplete="off"><button type="button" class="btn sm" data-action="ledBulk">적용</button></div>
+    <ul class="led-people">${D.items.map((i, k) => `<li class="${i.on ? '' : 'is-off'}"><button type="button" class="chip" aria-pressed="${i.on}" data-action="ledToggle" data-i="${k}">${esc(i.name)}</button><input class="led-menu" data-led="menu" data-i="${k}" list="ledMenus" value="${esc(i.menu)}" placeholder="메뉴" autocomplete="off"><input class="led-amt" data-led="amount" data-i="${k}" inputmode="numeric" value="${esc(i.amount)}" placeholder="금액" autocomplete="off" aria-label="${esc(i.name)} 금액"></li>`).join('')}</ul>
+    <div class="inline led-add"><input id="ledNew" placeholder="다른 사람·손님 이름" autocomplete="off" aria-label="추가할 이름"><button type="button" class="btn" data-action="ledAddPerson">추가</button></div>
+    <div class="form led-form" style="margin-top:14px">
+      <label>결제한 사람<select data-led="payer"><option value="">(미지정)</option>${payers.map(n => `<option${n === D.payer ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+      <label>지불 금액<input data-led="paid" inputmode="numeric" value="${esc(D.paid)}" placeholder="자동: 합계"></label>
+      <label class="full">비고<input data-led="note" value="${esc(D.note)}" placeholder="예: 포장, 할인"></label>
+    </div>
+    <div class="led-total2">${ledTotalHtml()}</div>
+    <details class="led-board"><summary>메뉴판 (${esc(D.place || '이 가게')})</summary>
+      ${D.place || D.rid ? `<ul>${board.map((m, k) => `<li><span>${esc(m.n)}</span><b>${won(m.p)}원</b><button type="button" class="link" data-action="ledMenuDel" data-k="${k}">지우기</button></li>`).join('') || '<li class="muted small">아직 없습니다. 메뉴와 금액을 적어 저장하면 다음부터 골라 쓸 수 있습니다.</li>'}</ul>
+      <div class="inline"><input id="lmN" placeholder="메뉴" aria-label="메뉴 이름"><input id="lmP" inputmode="numeric" placeholder="가격" aria-label="가격" style="max-width:100px"><button type="button" class="btn sm" data-action="ledMenuAdd">추가</button></div>` : '<p class="muted small">장소를 먼저 적어 주세요.</p>'}
+    </details>
+    <div class="dlg-actions">${D.id ? '<button type="button" class="btn ghost danger" data-action="ledAskDelete">지우기</button>' : ''}<span class="grow"></span><button type="button" class="btn" data-action="closeModal">취소</button><button type="button" class="btn seal" data-action="ledSave">저장</button></div>`;
+  const dlg = $('#modal .dialog'), keep = dlg ? dlg.scrollTop : 0, open = dlg && !$('#modal').hidden && dlg.querySelector('.led-form');
+  if (open && !first) { dlg.innerHTML = html; dlg.scrollTop = keep; } else openModal(html);
+  const det = $('#modal .led-board'); if (det && LED.boardOpen) det.open = true;
+}
+function ledTotalHtml() {
+  const { sum, paid } = ledSums();
+  return `합계 <b id="ledSum">${won(sum)}</b>원${paid !== sum ? ` · 지불 <b>${won(paid)}</b>원 <button type="button" class="btn sm" data-action="ledScale">지불액에 맞춰 비례 조정</button>` : ''}`;
+}
+function ledUpdateSum() { const box = $('.led-total2'); if (box) box.innerHTML = ledTotalHtml(); }
+function ledSet(t, isChange) {
+  const D = LED, k = t.dataset.led, i = t.dataset.i != null ? D.items[+t.dataset.i] : null;
+  if (k === 'date') D.date = t.value || TODAY;
+  else if (k === 'kind') D.kind = t.value;
+  else if (k === 'place') {
+    D.place = t.value;
+    if (isChange) { const r = S.restaurants.find(x => x.name === t.value.trim()); D.rid = r ? r.id : null; ledRender(); }
+  }
+  else if (k === 'payer') { D.payer = t.value; if (!t.value || t.value === treasurerName()) D.reimbursedAt = null; }
+  else if (k === 'paid') { D.paid = String(num(t.value) || ''); ledUpdateSum(); }
+  else if (k === 'note') D.note = t.value;
+  else if (k === 'bulk') D.bulk = t.value;
+  else if (k === 'amount' && i) { i.amount = String(num(t.value) || ''); i.auto = false; ledUpdateSum(); }
+  else if (k === 'menu' && i) {
+    i.menu = t.value;
+    if (isChange) {
+      const hit = menuSuggest(D.rid, D.place).find(s => s.n === t.value.trim());
+      if (hit && hit.p && (!num(i.amount) || i.auto)) { i.amount = String(hit.p); i.auto = true; const a = t.closest('li').querySelector('.led-amt'); if (a) a.value = i.amount; ledUpdateSum(); }
+    }
+  }
+}
+document.addEventListener('input', e => { if (LED && e.target.dataset && e.target.dataset.led) ledSet(e.target, false); });
+document.addEventListener('change', e => { if (LED && e.target.dataset && e.target.dataset.led) ledSet(e.target, true); });
+function ledScale() {
+  const D = LED, { on, sum, paid } = ledSums();
+  if (!on.length || !paid || !sum) return;
+  const unit = paid % 10 === 0 ? 10 : 1, units = paid / unit;
+  const raw = on.map(i => num(i.amount) / sum * units), base = raw.map(Math.floor);
+  let rest = units - base.reduce((a, b) => a + b, 0);
+  const order = raw.map((v, k) => [v - base[k], k]).sort((a, b) => b[0] - a[0]);
+  for (let j = 0; rest > 0 && j < order.length; j++, rest--) base[order[j][1]]++;
+  on.forEach((i, k) => { i.amount = String(base[k] * unit); i.auto = false; });
+  const pct = Math.round((1 - paid / sum) * 100);
+  const tag = pct > 0 ? `(할인 ${pct}% 비례 차감)` : '(금액 비례 조정)';
+  if (!/비례/.test(D.note)) D.note = (D.note ? D.note + ' ' : '') + tag;
+  D.paid = ''; ledRender();
+}
+function ledSave() {
+  const D = LED, { on, sum, paid } = ledSums();
+  if (!on.length) { toast('먹은 사람의 금액을 한 명 이상 적어 주세요.'); return; }
+  const place = D.place.trim() || kindLabel(D.kind), payer = D.payer || treasurerName();
+  const old = D.id ? S.ledger.expenses.find(x => x.id === D.id) : null;
+  const rec = { id: D.id || 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), date: D.date, kind: D.kind, rid: D.rid || null, place,
+    items: on.map(i => ({ name: i.name, menu: i.menu.trim(), amount: num(i.amount) })), paid, payer, note: D.note.trim(),
+    reimbursedAt: payer && payer !== treasurerName() ? (D.reimbursedAt || null) : null, createdAt: old ? old.createdAt : Date.now(), updatedAt: Date.now() };
+  if (old) Object.assign(old, rec); else S.ledger.expenses.push(rec);
+  if (paid === sum) for (const i of rec.items) learnMenu(rec.rid, place, i.menu, i.amount);
+  save(); closeModal(); LG.month = rec.date.slice(0, 7);
+  if (App.tab === 'ledger') renderLedger();
+  renderToday(); toast('기록했습니다.');
+}
+
 const actions = {
   tab: el => setTab(el.dataset.tab),
   mode: el => { const day = getDay(); if (day.confirmedAt) return; day.mode = el.dataset.mode; day.skip = []; applyRec(day); save(); renderAll(); },
@@ -3328,6 +3581,25 @@ const actions = {
   copyExcel: () => { const r = byId(getDay().pick); if (r) copyText(excelLine(r), '복사했습니다. 엑셀의 날짜 칸을 누르고 붙여 넣으세요.'); },
   copyBoth: () => { const r = byId(getDay().pick); if (r) copyText($('#noticeText').value + '\n\n' + excelLine(r), '공지문과 엑셀 한 줄을 함께 복사했습니다.'); },
   copyTel: el => copyText(el.dataset.tel, '전화번호를 복사했습니다.'),
+  ledNew: el => openLedger(null, { kind: el.dataset.kind }),
+  ledgerToday: () => { const e = ledExpenses().find(x => x.date === TODAY && x.kind === 'meal'); openLedger(e ? e.id : null, { kind: 'meal' }); },
+  ledEdit: el => openLedger(el.dataset.id),
+  ledMonth: el => { const [y, m] = LG.month.split('-').map(Number), d = new Date(y, m - 1 + +el.dataset.d, 1); LG.month = d.getFullYear() + '-' + pad(d.getMonth() + 1); renderLedger(); },
+  ledToggle: el => { const i = LED.items[+el.dataset.i]; if (i) { i.on = !i.on; ledRender(); } },
+  ledBulk: () => { const D = LED, name = D.bulk.trim(); if (!name) return; const hit = menuSuggest(D.rid, D.place).find(s => s.n === name); for (const i of D.items) if (i.on) { i.menu = name; if (hit && hit.p) { i.amount = String(hit.p); i.auto = true; } } ledRender(); },
+  ledAddPerson: () => { const n = $('#ledNew').value.trim(); if (!n) return; if (LED.items.some(i => i.name === n)) { toast('이미 있는 이름입니다.'); return; } LED.items.push({ name: n, on: true, menu: '', amount: '', auto: false }); ledRender(); },
+  ledScale,
+  ledMenuAdd: () => { const n = $('#lmN').value.trim(), p = num($('#lmP').value); if (!n || !p) { toast('메뉴 이름과 가격을 적어 주세요.'); return; } learnMenu(LED.rid, LED.place.trim(), n, p); save(); LED.boardOpen = true; ledRender(); },
+  ledMenuDel: el => { const list = S.ledger.menus[menuKey(LED.rid, LED.place.trim())]; if (list) { list.splice(+el.dataset.k, 1); save(); } LED.boardOpen = true; ledRender(); },
+  ledSave,
+  ledAskDelete: () => openModal(`<h2>기록 지우기</h2><p>이 식비 기록을 지웁니다. 사람별 합계에서도 빠집니다.</p><div class="dlg-actions"><span class="grow"></span><button type="button" class="btn" data-action="ledBack">돌아가기</button><button type="button" class="btn seal" data-action="ledDoDelete">지우기</button></div>`),
+  ledBack: () => ledRender(true),
+  ledDoDelete: () => { const e = S.ledger.expenses.find(x => x.id === (LED && LED.id)); if (e) { e.deleted = true; e.updatedAt = Date.now(); } save(); closeModal(); renderLedger(); renderToday(); toast('지웠습니다.'); },
+  ledReimburse: el => { const e = S.ledger.expenses.find(x => x.id === el.dataset.id); if (!e) return; e.reimbursedAt = TODAY; e.updatedAt = Date.now(); save(); renderLedger(); toast('송금완료로 표시했습니다.'); },
+  ledPaidToggle: el => { const mm = S.ledger.settled[LG.month] = S.ledger.settled[LG.month] || {}, n = el.dataset.name; if (mm[n]) delete mm[n]; else mm[n] = TODAY; save(); renderLedger(); },
+  ledCopyTable: () => copyText(ledTable(LG.month), '엑셀 표를 복사했습니다. 엑셀의 첫 칸을 누르고 붙여 넣으세요.'),
+  ledCopyBills: () => copyText(ledBills(LG.month), '정산 안내를 복사했습니다. 메신저에 붙여 넣으세요.'),
+  ledCopyOne: el => copyText(ledBill(LG.month, el.dataset.name), el.dataset.name + '님 문구를 복사했습니다.'),
   rate: el => { const v = S.visits.find(x => x.date === el.dataset.date); if (!v) return; v.rating = v.rating === el.dataset.rating ? null : el.dataset.rating; save(); renderAll(); },
   togglePerson: el => { const ab = S.absent[TODAY] = S.absent[TODAY] || [], id = el.dataset.id, i = ab.indexOf(id); if (i >= 0) ab.splice(i, 1); else ab.push(id); syncTodayVisit(); save(); renderToday(); },
   guest: el => { S.guests[TODAY] = Math.max(0, (S.guests[TODAY] || 0) + +el.dataset.d); syncTodayVisit(); save(); renderToday(); },
