@@ -2556,6 +2556,7 @@ function save() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); if (!storageOK) { storageOK = true; renderToday(); } }
     catch (e) { if (storageOK) { storageOK = false; renderToday(); } }
   }, 120);
+  if (typeof scheduleSync === 'function') scheduleSync();
 }
 
 /* ---------- 거리 계산(내장 도로망) ---------- */
@@ -2768,7 +2769,7 @@ function rateButtons(date, cur, mini) {
   return `<div class="rate${mini ? ' mini' : ''}" role="group" aria-label="평가">${opts.map(([k, l]) => `<button type="button" data-action="rate" data-date="${date}" data-rating="${k}" aria-pressed="${cur === k}"${mini ? ` aria-label="${l}"` : ''}>${mini ? lab[k] : l}</button>`).join('')}</div>`;
 }
 function topNotices() {
-  let h = '';
+  let h = syncNotice();
   if (!storageOK) h += `<div class="notice"><p>이 브라우저에서는 자동 저장이 되지 않습니다. 오늘 바꾼 내용은 설정 › 인수인계 파일로 저장해 두세요.</p><button class="btn sm" data-action="tab" data-tab="settings">설정 열기</button></div>`;
   const hasData = S.visits.length >= 5 || S.roster.length > 0;
   const gap = S.lastBackup ? dayDiff(S.lastBackup, TODAY) : null;
@@ -2921,6 +2922,7 @@ function renderSettings() {
     <div class="form"><label>총무 이름<input data-set="treasurer" list="rosterNames" value="${esc(s.treasurer)}" placeholder="예: 홍길동" autocomplete="off"></label><label>입금 계좌 안내<input data-set="bank" value="${esc(s.bank)}" placeholder="예: 농협 123-45-678901" autocomplete="off"></label></div>
     <datalist id="rosterNames">${S.roster.map(m => `<option value="${esc(m.name)}"></option>`).join('')}</datalist>
     <p class="muted small">정산 기록(이름·메뉴·금액)은 이 기기의 브라우저와 인수인계 파일에만 저장됩니다. 총무가 아닌 분이 먼저 결제하면 「대결」로 표시되고, 총무가 송금하면 「송금완료」를 눌러 두세요.</p></section>
+  ${syncSettingsHtml()}
   <section class="sec"><div class="sec-h"><h3>인수인계</h3><span>${S.lastBackup ? '마지막 저장 ' + fmtMD(S.lastBackup) : '아직 저장 안 함'}</span></div>
     <p class="muted small">식당 목록·방문 기록·명단·설정을 파일 하나로 저장합니다. 후임자는 이 앱 파일과 인수인계 파일만 받으면 그대로 이어서 쓸 수 있습니다.</p>
     <div class="row"><button type="button" class="btn seal" data-action="exportFile">인수인계 파일 저장</button><button type="button" class="btn" data-action="exportCopy">내용 복사</button></div>
@@ -3440,6 +3442,7 @@ function renderLedger() {
   const todayRec = ledExpenses().find(e => e.date === TODAY && e.kind === 'meal');
   const paidCnt = people.filter(n => settled[n]).length;
   v.innerHTML = `
+    ${syncNotice()}
     <div class="led-month"><button type="button" class="btn sm" data-action="ledMonth" data-d="-1" aria-label="이전 달">◀</button><b>${y}년 ${+m}월</b><button type="button" class="btn sm" data-action="ledMonth" data-d="1" aria-label="다음 달">▶</button></div>
     ${!t || !S.settings.bank ? `<div class="notice"><p>총무 이름과 입금 계좌를 적어 두면 정산 안내와 대결 처리가 편해집니다.</p><button class="btn sm" data-action="tab" data-tab="settings">설정 열기</button></div>` : ''}
     <section class="sec"><div class="led-sum2"><div><span>이번 달 합계</span><b>${won(grand)}원</b></div><div><span>기록</span><b>${list.length}건</b></div><div><span>입금</span><b>${paidCnt}/${people.length}</b></div></div>
@@ -3451,7 +3454,8 @@ function renderLedger() {
     ${pending.length ? `<section class="sec"><div class="sec-h"><h3>총무가 보낼 돈 (대결)</h3><span>${t}님이 아닌 분이 먼저 결제한 건</span></div>
       <ul class="led-list">${pending.map(e => `<li><span class="d">${fmtMD(e.date)}</span><span class="nm">${esc(e.place)} · 결재 ${esc(e.payer)}</span><b>${won(expPaid(e))}원</b><button type="button" class="btn sm" data-action="ledReimburse" data-id="${e.id}">송금완료</button></li>`).join('')}</ul></section>` : ''}
     ${list.length ? `<section class="sec"><div class="sec-h"><h3>내역</h3><span>눌러서 수정</span></div>
-      <ul class="led-list">${list.slice().reverse().map(e => `<li class="led-item" data-action="ledEdit" data-id="${e.id}" tabindex="0" role="button"><span class="d">${fmtMD(e.date)}</span><span class="nm">${esc(e.place)}<small>${kindLabel(e.kind)} · ${e.items.length}명${e.payer && t && e.payer !== t ? ` · 결재 ${esc(e.payer)}` : ''}</small></span><b>${won(expPaid(e))}원</b></li>`).join('')}</ul></section>` : ''}`;
+      <ul class="led-list">${list.slice().reverse().map(e => `<li class="led-item" data-action="ledEdit" data-id="${e.id}" tabindex="0" role="button"><span class="d">${fmtMD(e.date)}</span><span class="nm">${esc(e.place)}<small>${kindLabel(e.kind)} · ${e.items.length}명${e.payer && t && e.payer !== t ? ` · 결재 ${esc(e.payer)}` : ''}</small></span><b>${won(expPaid(e))}원</b></li>`).join('')}</ul></section>` : ''}
+    ${syncLedgerHtml()}`;
 }
 
 /* 기록 입력 창 */
@@ -3564,6 +3568,155 @@ function ledSave() {
   renderToday(); toast('기록했습니다.');
 }
 
+/* ---------- 기기 간 동기화(OneDrive 폴더·파일) ---------- */
+// 기기마다 자기 파일(점심반장_정산_PC.json / _휴대폰.json)만 쓰고, 읽을 때는 같은 이름 규칙의 파일을 모두 합친다.
+const SYNC_PREFIX = '점심반장_정산';
+const deviceLabel = () => (/iPhone|iPad|Android|Mobile/i.test(navigator.userAgent) ? '휴대폰' : 'PC');
+const SYNC = { busy: false, handle: null, perm: 'none', last: null, timer: 0, lastHash: '', err: '' };
+const idb = {
+  open: () => new Promise((res, rej) => { const q = indexedDB.open('seobu-lunch-sync', 1); q.onupgradeneeded = () => q.result.createObjectStore('kv'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }),
+  get: k => idb.open().then(db => new Promise((res, rej) => { const r = db.transaction('kv').objectStore('kv').get(k); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); })),
+  set: (k, v) => idb.open().then(db => new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = () => res(); t.onerror = () => rej(t.error); })),
+  del: k => idb.open().then(db => new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').delete(k); t.oncomplete = () => res(); t.onerror = () => rej(t.error); })),
+};
+function syncPayload() {
+  const day = S.days[TODAY], pick = day && day.confirmedAt && day.pick && byId(day.pick);
+  return {
+    app: APP_ID, kind: 'sync', version: 1, device: deviceLabel(), exportedAt: new Date().toISOString(),
+    ledger: S.ledger, roster: S.roster.map(m => m.name),
+    settings: { treasurer: S.settings.treasurer || '', bank: S.settings.bank || '' },
+    today: pick ? { date: TODAY, rid: pick.id, place: pick.name, confirmedAt: day.confirmedAt, present: presentMembers().map(m => m.name), guests: S.guests[TODAY] || 0 } : null,
+  };
+}
+const str = (v, n) => (typeof v === 'string' ? v : '').slice(0, n || 200);
+function cleanExpense(e) {
+  if (!e || typeof e.id !== 'string' || !/^\d{4}-\d\d-\d\d$/.test(e.date || '') || !Array.isArray(e.items)) return null;
+  const items = e.items.map(i => ({ name: str(i && i.name, 40), menu: str(i && i.menu, 60), amount: Math.max(0, Math.round(+(i && i.amount) || 0)) })).filter(i => i.name);
+  if (!items.length && !e.deleted) return null;
+  return { id: str(e.id, 40), date: e.date, kind: ['meal', 'cafe', 'etc'].includes(e.kind) ? e.kind : 'etc', rid: e.rid ? str(e.rid, 40) : null, place: str(e.place, 60),
+    items, paid: Number.isFinite(+e.paid) ? Math.round(+e.paid) : items.reduce((a, i) => a + i.amount, 0), payer: str(e.payer, 40), note: str(e.note, 120),
+    reimbursedAt: /^\d{4}-\d\d-\d\d$/.test(e.reimbursedAt || '') ? e.reimbursedAt : null, deleted: !!e.deleted, createdAt: +e.createdAt || 0, updatedAt: +e.updatedAt || 0 };
+}
+function mergeSync(d) {
+  if (!d || d.app !== APP_ID || !d.ledger || typeof d.ledger !== 'object') return null;
+  const res = { added: 0, updated: 0, people: 0, menus: 0, today: false }, L = S.ledger;
+  const byid = new Map(L.expenses.map(e => [e.id, e]));
+  for (const raw of Array.isArray(d.ledger.expenses) ? d.ledger.expenses : []) {
+    const e = cleanExpense(raw); if (!e) continue;
+    const cur = byid.get(e.id);
+    if (!cur) { L.expenses.push(e); byid.set(e.id, e); if (!e.deleted) res.added++; }
+    else if (e.updatedAt > (cur.updatedAt || 0)) { Object.assign(cur, e); res.updated++; }
+  }
+  for (const [k, list] of Object.entries(d.ledger.menus && typeof d.ledger.menus === 'object' ? d.ledger.menus : {})) {
+    if (!Array.isArray(list)) continue;
+    const cur = L.menus[k] = L.menus[k] || [];
+    for (const m of list) { const n = str(m && m.n, 60), p = Math.round(+(m && m.p) || 0); if (n && p > 0 && !cur.some(x => x.n === n)) { cur.push({ n, p }); res.menus++; } }
+  }
+  for (const [mo, o] of Object.entries(d.ledger.settled && typeof d.ledger.settled === 'object' ? d.ledger.settled : {})) {
+    if (!/^\d{4}-\d\d$/.test(mo) || !o || typeof o !== 'object') continue;
+    const cur = L.settled[mo] = L.settled[mo] || {};
+    for (const [n, dt] of Object.entries(o)) if (/^\d{4}-\d\d-\d\d$/.test(dt) && (!cur[n] || dt > cur[n])) cur[n] = dt;
+  }
+  for (const n of Array.isArray(d.roster) ? d.roster : []) {
+    const name = str(n, 40).trim();
+    if (name && !S.roster.some(m => m.name === name)) { S.roster.push({ id: 'p' + Date.now().toString(36) + res.people, name }); res.people++; }
+  }
+  const st = d.settings || {};
+  if (!S.settings.treasurer && st.treasurer) S.settings.treasurer = str(st.treasurer, 40);
+  if (!S.settings.bank && st.bank) S.settings.bank = str(st.bank, 80);
+  const t = d.today, day = getDay();
+  if (t && t.date === TODAY && !day.confirmedAt) {
+    const rr = byId(t.rid) || S.restaurants.find(x => x.name === t.place);
+    if (rr) {
+      const present = (Array.isArray(t.present) ? t.present : []).map(x => str(x, 40));
+      day.pick = rr.id; day.alt = null; day.note = ''; day.confirmedAt = str(t.confirmedAt, 8) || nowHM();
+      if (S.roster.length) S.absent[TODAY] = S.roster.filter(m => !present.includes(m.name)).map(m => m.id);
+      S.guests[TODAY] = Math.max(0, Math.min(60, +t.guests || 0));
+      S.visits = S.visits.filter(v => v.date !== TODAY);
+      S.visits.push({ date: TODAY, rid: rr.id, rating: null, people: presentMembers().map(m => m.name), guests: S.guests[TODAY], count: headcount() });
+      res.today = true;
+    }
+  }
+  if (res.added || res.updated || res.people || res.menus || res.today) { invalidate(); save(); }
+  return res;
+}
+const syncSummary = r => [r.added && `새 기록 ${r.added}건`, r.updated && `고친 기록 ${r.updated}건`, r.people && `사람 ${r.people}명`, r.today && '오늘 식당'].filter(Boolean).join(', ');
+
+async function syncPerm(ask) {
+  const h = SYNC.handle; if (!h) return 'none';
+  let p = await h.queryPermission({ mode: 'readwrite' });
+  if (p !== 'granted' && ask) p = await h.requestPermission({ mode: 'readwrite' });
+  return (SYNC.perm = p);
+}
+async function syncFolder(ask) {
+  if (!SYNC.handle || SYNC.busy) return null;
+  SYNC.busy = true; let total = { added: 0, updated: 0, people: 0, today: false };
+  try {
+    if (await syncPerm(ask) !== 'granted') return null;
+    for await (const [name, fh] of SYNC.handle.entries()) {
+      if (fh.kind !== 'file' || !name.startsWith(SYNC_PREFIX) || !name.endsWith('.json')) continue;
+      let d; try { d = JSON.parse(await (await fh.getFile()).text()); } catch (e) { continue; }
+      const r = mergeSync(d);
+      if (r) { total.added += r.added; total.updated += r.updated; total.people += r.people; total.today = total.today || r.today; }
+    }
+    const payload = syncPayload(), hash = JSON.stringify({ ...payload, exportedAt: 0 });
+    if (hash !== SYNC.lastHash) {
+      const fh = await SYNC.handle.getFileHandle(`${SYNC_PREFIX}_${deviceLabel()}.json`, { create: true });
+      const w = await fh.createWritable(); await w.write(JSON.stringify(payload)); await w.close(); SYNC.lastHash = hash;
+    }
+    SYNC.last = new Date(); SYNC.err = '';
+  } catch (e) { SYNC.err = String((e && e.message) || e); }
+  finally { SYNC.busy = false; }
+  if (total.added || total.updated || total.people || total.today) renderAll(); else { if (App.tab === 'settings') renderSettings(); if (App.tab === 'ledger') renderLedger(); }
+  return total;
+}
+function scheduleSync() { if (SYNC.busy || !SYNC.handle || SYNC.perm !== 'granted') return; clearTimeout(SYNC.timer); SYNC.timer = setTimeout(() => syncFolder(false), 1500); }
+function syncNotice() {
+  if (!SYNC.handle || SYNC.perm === 'granted') return '';
+  return `<div class="notice"><p>OneDrive 폴더(${esc(SYNC.handle.name)}) 동기화를 켜려면 접근을 한 번 허용해 주세요.</p><button class="btn sm seal" data-action="syncAllow">허용하고 동기화</button></div>`;
+}
+async function syncExport() {
+  const name = `${SYNC_PREFIX}_${deviceLabel()}.json`, text = JSON.stringify(syncPayload());
+  const file = new File([text], name, { type: 'application/json' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: '점심반장 정산' }); toast('공유했습니다. 저장 위치로 OneDrive 폴더를 고르세요.'); return; }
+    catch (err) { if (err && err.name === 'AbortError') return; }
+  }
+  const url = URL.createObjectURL(file), a = document.createElement('a'); a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 3000);
+  toast('파일로 저장했습니다. 다운로드·파일 앱에서 OneDrive 폴더로 옮기세요.');
+}
+function syncImportFiles(files) {
+  Promise.all(Array.from(files).map(f => f.text().then(t => { try { return JSON.parse(t); } catch (e) { return null; } }))).then(list => {
+    const sum = { added: 0, updated: 0, people: 0, today: false }; let ok = 0;
+    for (const d of list) { const r = mergeSync(d); if (r) { ok++; sum.added += r.added; sum.updated += r.updated; sum.people += r.people; sum.today = sum.today || r.today; } }
+    if (!ok) { toast('점심반장 정산 파일이 아닙니다.'); return; }
+    renderAll(); toast(syncSummary(sum) ? '합쳤습니다: ' + syncSummary(sum) : '이미 같은 내용입니다.');
+  });
+}
+document.addEventListener('change', e => { if (e.target && e.target.id === 'syncImport') { syncImportFiles(e.target.files); e.target.value = ''; } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && SYNC.handle && SYNC.perm === 'granted') syncFolder(false); });
+function syncSettingsHtml() {
+  const ok = 'showDirectoryPicker' in window && !!window.indexedDB;
+  const h = SYNC.handle;
+  const state = !h ? '' : SYNC.perm === 'granted' ? `허용됨${SYNC.last ? ' · 마지막 ' + pad(SYNC.last.getHours()) + ':' + pad(SYNC.last.getMinutes()) : ''}${SYNC.err ? ` · 오류: ${esc(SYNC.err)}` : ''}` : '접근 허용이 필요합니다';
+  return `<section class="sec"><div class="sec-h"><h3>기기 간 동기화</h3><span>OneDrive 폴더</span></div>
+    <p class="muted small">정산 엑셀을 두는 OneDrive 폴더를 한 번 고르면, 이 기기의 기록이 그 폴더의 <b>${SYNC_PREFIX}_${deviceLabel()}.json</b>에 자동 저장되고 같은 폴더의 다른 기기 파일은 합쳐서 불러옵니다. 기록은 이 폴더와 이 기기에만 저장됩니다.</p>
+    ${ok ? (h ? `<p class="small">폴더: <b>${esc(h.name)}</b> · ${state}</p><div class="row"><button type="button" class="btn" data-action="syncNow">지금 동기화</button><button type="button" class="btn" data-action="syncPick">폴더 바꾸기</button><button type="button" class="btn ghost danger" data-action="syncOff">끄기</button></div>` : '<div class="row"><button type="button" class="btn seal" data-action="syncPick">OneDrive 폴더 고르기</button></div>') : '<p class="muted small">이 브라우저는 폴더 자동 동기화를 지원하지 않습니다(PC의 크롬·엣지에서 가능). 정산 탭의 내보내기·가져오기를 쓰세요.</p>'}</section>`;
+}
+function syncLedgerHtml() {
+  return `<section class="sec"><div class="sec-h"><h3>다른 기기와 주고받기</h3></div>
+    <p class="muted small">휴대폰에서 기록했다면 식사 후 <b>내보내기</b>를 눌러 OneDrive 폴더에 저장하세요. 다른 기기의 파일은 <b>가져오기</b>로 합칩니다(여러 개 선택 가능). 같은 기록이 겹쳐도 중복되지 않습니다.</p>
+    <div class="row"><button type="button" class="btn" data-action="syncExport">내보내기</button><label class="btn" for="syncImport">가져오기</label><input type="file" id="syncImport" accept=".json,application/json" multiple hidden></div></section>`;
+}
+if (window.indexedDB && 'showDirectoryPicker' in window) {
+  idb.get('dir').then(async h => {
+    if (!h) return;
+    SYNC.handle = h; SYNC.perm = await h.queryPermission({ mode: 'readwrite' }).catch(() => 'prompt');
+    if (SYNC.perm === 'granted') syncFolder(false); else renderAll();
+  }).catch(() => {});
+}
+
 const actions = {
   tab: el => setTab(el.dataset.tab),
   mode: el => { const day = getDay(); if (day.confirmedAt) return; day.mode = el.dataset.mode; day.skip = []; applyRec(day); save(); renderAll(); },
@@ -3600,6 +3753,11 @@ const actions = {
   ledCopyTable: () => copyText(ledTable(LG.month), '엑셀 표를 복사했습니다. 엑셀의 첫 칸을 누르고 붙여 넣으세요.'),
   ledCopyBills: () => copyText(ledBills(LG.month), '정산 안내를 복사했습니다. 메신저에 붙여 넣으세요.'),
   ledCopyOne: el => copyText(ledBill(LG.month, el.dataset.name), el.dataset.name + '님 문구를 복사했습니다.'),
+  syncPick: async () => { try { const h = await window.showDirectoryPicker({ mode: 'readwrite', id: 'lunch-sync' }); SYNC.handle = h; SYNC.perm = 'granted'; SYNC.lastHash = ''; await idb.set('dir', h); await syncFolder(true); toast('폴더를 연결했습니다.'); } catch (e) { if (!e || e.name !== 'AbortError') toast('폴더를 연결하지 못했습니다. ' + ((e && e.message) || '')); } },
+  syncAllow: () => syncFolder(true),
+  syncNow: () => syncFolder(true).then(r => toast(r ? '동기화했습니다.' : '접근이 허용되지 않았거나 이미 진행 중입니다.')),
+  syncOff: async () => { SYNC.handle = null; SYNC.perm = 'none'; try { await idb.del('dir'); } catch (e) { /* 무시 */ } renderSettings(); renderToday(); toast('동기화를 껐습니다. 폴더의 파일은 그대로 남습니다.'); },
+  syncExport,
   rate: el => { const v = S.visits.find(x => x.date === el.dataset.date); if (!v) return; v.rating = v.rating === el.dataset.rating ? null : el.dataset.rating; save(); renderAll(); },
   togglePerson: el => { const ab = S.absent[TODAY] = S.absent[TODAY] || [], id = el.dataset.id, i = ab.indexOf(id); if (i >= 0) ab.splice(i, 1); else ab.push(id); syncTodayVisit(); save(); renderToday(); },
   guest: el => { S.guests[TODAY] = Math.max(0, (S.guests[TODAY] || 0) + +el.dataset.d); syncTodayVisit(); save(); renderToday(); },
