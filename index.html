@@ -316,8 +316,8 @@ p{margin:0}
 .led-list .nm small{color:var(--ink-3);font-size:12px}
 .led-item{cursor:pointer}
 .led-people{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
-.led-people li{display:grid;grid-template-columns:minmax(64px,auto) minmax(0,1fr) 92px;gap:6px;align-items:center}
-.led-people li.is-off .led-menu,.led-people li.is-off .led-amt{opacity:.45}
+.led-people li{display:grid;grid-template-columns:minmax(64px,auto) minmax(0,1fr) 84px 30px;gap:6px;align-items:center}
+.led-people li.is-off .led-menu-btn,.led-people li.is-off .led-amt{opacity:.45}
 .led-menu,.led-amt,.led-bulk input,#ledNew,#lmN,#lmP{height:38px;border:1px solid var(--line-2);border-radius:9px;padding:0 10px;background:var(--surface);min-width:0}
 .led-amt{text-align:right;font-variant-numeric:tabular-nums}
 .led-bulk{flex-wrap:nowrap}.led-bulk input{flex:1}
@@ -328,6 +328,21 @@ p{margin:0}
 .led-board summary{cursor:pointer;font-weight:600;font-size:13px}
 .led-board ul{list-style:none;margin:8px 0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:13px}
 .led-board li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center}
+.led-menu-btn{height:38px;border:1px solid var(--line-2);border-radius:9px;padding:0 10px;background:var(--surface);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;min-width:0}
+.led-x{width:30px;height:38px;border:0;background:transparent;color:var(--ink-3);font-size:15px;cursor:pointer;padding:0}
+.pchip{border:1px solid var(--line-2);background:var(--surface);border-radius:999px;padding:6px 13px;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink-2)}
+.pchip[aria-pressed="true"]{border-color:var(--seal);background:var(--seal-soft);color:var(--seal-text)}
+.led-picks{list-style:none;margin:8px 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.led-pick{width:100%;display:flex;justify-content:space-between;gap:10px;align-items:center;min-height:44px;padding:0 14px;border:1px solid var(--line-2);border-radius:10px;background:var(--surface);cursor:pointer;font-size:14px;text-align:left}
+.led-pick b{font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.led-prog{height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden;border:1px solid var(--line);margin-top:10px}
+.led-prog i{display:block;height:100%;background:var(--seal);transition:width .2s}
+.led-ocr{list-style:none;margin:8px 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.led-ocr li{display:grid;grid-template-columns:auto minmax(0,1fr) 86px;gap:8px;align-items:center}
+.led-ocr input:not([type=checkbox]){height:38px;border:1px solid var(--line-2);border-radius:9px;padding:0 8px;background:var(--surface);min-width:0}
+.led-ocr input[type=checkbox]{width:18px;height:18px;accent-color:var(--seal)}
+.led-raw{margin-top:8px;font-size:12.5px}
+.led-raw pre{white-space:pre-wrap;font:12px/1.5 ui-monospace,Consolas,monospace;background:var(--surface-2);padding:8px;border-radius:8px;max-height:160px;overflow:auto;margin:6px 0 0}
 @media (max-width:520px){.dialog{padding:16px}}
 /* 대화상자·알림 */
 .modal{position:fixed;inset:0;background:rgba(12,17,21,.45);display:grid;place-items:center;padding:16px;z-index:50}
@@ -3473,43 +3488,79 @@ function openLedger(id, preset) {
     D = { id: null, date: TODAY, kind, rid: r ? r.id : null, place: r ? r.name : '', payer: treasurerName(), paid: '', note: '', reimbursedAt: null, bulk: '', orig: 0,
       items: S.roster.map(m => ({ name: m.name, on: !ab.includes(m.id), menu: '', amount: '', auto: false })) };
   }
-  LED = D; ledRender(true);
+  D.view = 'main'; LED = D; ledRender(true);
 }
 function ledSums() {
   const D = LED, on = D.items.filter(i => i.on && num(i.amount) > 0), sum = on.reduce((a, i) => a + num(i.amount), 0);
   return { on, sum, paid: D.paid ? num(D.paid) : sum };
 }
-function ledRender(first) {
-  const D = LED, sug = menuSuggest(D.rid, D.place), t = treasurerName();
-  const payers = [...new Set([t, ...S.roster.map(m => m.name), D.payer].filter(Boolean))];
-  const board = S.ledger.menus[menuKey(D.rid, D.place)] || [];
-  const html = `<h2>${D.id ? '식비 수정' : '식비 기록'}</h2>
+function ledBoardHtml() {
+  const D = LED, board = S.ledger.menus[menuKey(D.rid, D.place)] || [];
+  return `<details class="led-board"><summary>메뉴판 (${esc(D.place || '이 가게')})</summary>
+      ${D.place || D.rid ? `<ul>${board.map((m, k) => `<li><span>${esc(m.n)}</span><b>${won(m.p)}원</b><button type="button" class="link" data-action="ledMenuDel" data-k="${k}">지우기</button></li>`).join('') || '<li class="muted small">아직 없습니다. 메뉴와 금액을 적어 저장하면 다음부터 골라 쓸 수 있습니다.</li>'}</ul>
+      <div class="inline"><input id="lmN" placeholder="메뉴" aria-label="메뉴 이름"><input id="lmP" inputmode="numeric" placeholder="가격" aria-label="가격" style="max-width:100px"><button type="button" class="btn sm" data-action="ledMenuAdd">추가</button></div>
+      <div class="row" style="margin-top:8px"><button type="button" class="btn sm" data-action="ledOcrStart">📷 메뉴판 사진으로 등록</button></div>` : '<p class="muted small">장소를 먼저 적어 주세요.</p>'}
+    </details>`;
+}
+function ledBoardRefresh() {
+  const old = $('#modal .led-board'); if (!old || !LED || LED.view !== 'main') return;
+  const open = old.open, tmp = document.createElement('div'); tmp.innerHTML = ledBoardHtml();
+  const nu = tmp.firstElementChild; nu.open = open; old.replaceWith(nu);
+}
+function ledMainHtml() {
+  const D = LED, t = treasurerName();
+  const cands = [...new Set([t, ...S.roster.map(m => m.name), ...D.items.map(i => i.name), D.payer].filter(Boolean))];
+  return `<h2>${D.id ? '식비 수정' : '식비 기록'}</h2>
     <div class="form led-form">
       <label>날짜<input type="date" data-led="date" value="${esc(D.date)}"></label>
       <label>종류<select data-led="kind">${LED_KINDS.map(([k, l]) => `<option value="${k}"${k === D.kind ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="full">장소<input data-led="place" list="ledPlaces" value="${esc(D.place)}" placeholder="식당·카페 이름" autocomplete="off"></label>
       <datalist id="ledPlaces">${S.restaurants.map(r => `<option value="${esc(r.name)}"></option>`).join('')}</datalist>
-      <datalist id="ledMenus">${sug.map(s => `<option value="${esc(s.n)}">${s.p ? won(s.p) + '원' : ''}</option>`).join('')}</datalist>
     </div>
     <div class="sec-h" style="margin-top:14px"><h3>먹은 사람</h3><span>이름을 눌러 켜고 끄세요</span></div>
-    ${S.roster.length ? '' : '<p class="muted small">설정 › 명단에 사람을 등록해 두면 여기에 자동으로 나옵니다. 지금은 아래에서 이름을 직접 추가하세요.</p>'}
-    <div class="row led-bulk"><input data-led="bulk" list="ledMenus" value="${esc(D.bulk)}" placeholder="켜진 모두에게 같은 메뉴" autocomplete="off"><button type="button" class="btn sm" data-action="ledBulk">적용</button></div>
-    <ul class="led-people">${D.items.map((i, k) => `<li class="${i.on ? '' : 'is-off'}"><button type="button" class="chip" aria-pressed="${i.on}" data-action="ledToggle" data-i="${k}">${esc(i.name)}</button><input class="led-menu" data-led="menu" data-i="${k}" list="ledMenus" value="${esc(i.menu)}" placeholder="메뉴" autocomplete="off"><input class="led-amt" data-led="amount" data-i="${k}" inputmode="numeric" value="${esc(i.amount)}" placeholder="금액" autocomplete="off" aria-label="${esc(i.name)} 금액"></li>`).join('')}</ul>
+    ${S.roster.length ? '' : '<p class="muted small">이 기기에는 명단이 없습니다. 아래에서 이름을 직접 추가하거나 설정 › 명단에 등록하세요.</p>'}
+    <div class="row led-bulk"><button type="button" class="btn sm" data-action="ledMenuPick" data-i="all">켜진 모두에게 같은 메뉴 고르기</button></div>
+    <ul class="led-people">${D.items.map((i, k) => `<li class="${i.on ? '' : 'is-off'}"><button type="button" class="chip" aria-pressed="${i.on}" data-action="ledToggle" data-i="${k}">${esc(i.name)}</button><button type="button" class="led-menu-btn" data-action="ledMenuPick" data-i="${k}">${i.menu ? esc(i.menu) : '<span class="muted">메뉴 선택</span>'}</button><input class="led-amt" data-led="amount" data-i="${k}" inputmode="numeric" value="${esc(i.amount)}" placeholder="금액" autocomplete="off" aria-label="${esc(i.name)} 금액"><button type="button" class="led-x" data-action="ledRemovePerson" data-i="${k}" aria-label="${esc(i.name)} 지우기">✕</button></li>`).join('')}</ul>
     <div class="inline led-add"><input id="ledNew" placeholder="다른 사람·손님 이름" autocomplete="off" aria-label="추가할 이름"><button type="button" class="btn" data-action="ledAddPerson">추가</button></div>
     <div class="form led-form" style="margin-top:14px">
-      <label>결제한 사람<select data-led="payer"><option value="">(미지정)</option>${payers.map(n => `<option${n === D.payer ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+      <label class="full">결제한 사람<input data-led="payer" value="${esc(D.payer)}" placeholder="이름을 쓰거나 아래에서 고르세요" autocomplete="off"></label>
+      <div class="chips full">${cands.map(n => `<button type="button" class="pchip" aria-pressed="${n === D.payer}" data-action="ledPayer" data-name="${esc(n)}">${esc(n)}${n === t ? ' (총무)' : ''}</button>`).join('') || '<span class="muted small">위 칸에 이름을 써 주세요.</span>'}</div>
       <label>지불 금액<input data-led="paid" inputmode="numeric" value="${esc(D.paid)}" placeholder="자동: 합계"></label>
       <label class="full">비고<input data-led="note" value="${esc(D.note)}" placeholder="예: 포장, 할인"></label>
     </div>
     <div class="led-total2">${ledTotalHtml()}</div>
-    <details class="led-board"><summary>메뉴판 (${esc(D.place || '이 가게')})</summary>
-      ${D.place || D.rid ? `<ul>${board.map((m, k) => `<li><span>${esc(m.n)}</span><b>${won(m.p)}원</b><button type="button" class="link" data-action="ledMenuDel" data-k="${k}">지우기</button></li>`).join('') || '<li class="muted small">아직 없습니다. 메뉴와 금액을 적어 저장하면 다음부터 골라 쓸 수 있습니다.</li>'}</ul>
-      <div class="inline"><input id="lmN" placeholder="메뉴" aria-label="메뉴 이름"><input id="lmP" inputmode="numeric" placeholder="가격" aria-label="가격" style="max-width:100px"><button type="button" class="btn sm" data-action="ledMenuAdd">추가</button></div>` : '<p class="muted small">장소를 먼저 적어 주세요.</p>'}
-    </details>
+    ${ledBoardHtml()}
     <div class="dlg-actions">${D.id ? '<button type="button" class="btn ghost danger" data-action="ledAskDelete">지우기</button>' : ''}<span class="grow"></span><button type="button" class="btn" data-action="closeModal">취소</button><button type="button" class="btn seal" data-action="ledSave">저장</button></div>`;
-  const dlg = $('#modal .dialog'), keep = dlg ? dlg.scrollTop : 0, open = dlg && !$('#modal').hidden && dlg.querySelector('.led-form');
-  if (open && !first) { dlg.innerHTML = html; dlg.scrollTop = keep; } else openModal(html);
-  const det = $('#modal .led-board'); if (det && LED.boardOpen) det.open = true;
+}
+function ledPickHtml() {
+  const D = LED, sug = menuSuggest(D.rid, D.place), who = D.pickTarget === 'all' ? '켜진 모두' : (D.items[D.pickTarget] || {}).name;
+  return `<h2>메뉴 선택</h2><p class="muted small">${esc(D.place || '장소 미입력')} · ${esc(who || '')}</p>
+    ${sug.length ? `<ul class="led-picks">${sug.map((s, k) => `<li><button type="button" class="led-pick" data-action="ledPickItem" data-k="${k}"><span>${esc(s.n)}</span><b>${s.p ? won(s.p) + '원' : ''}</b></button></li>`).join('')}</ul>` : '<p class="muted small" style="margin:8px 0">이 가게의 메뉴판이 아직 비어 있습니다. 아래에 직접 적거나 사진으로 등록하세요.</p>'}
+    <div class="form" style="margin-top:12px"><label>직접 입력: 메뉴 이름<input id="pkN" autocomplete="off" placeholder="예: 김치찌개"></label><label>가격(원)<input id="pkP" inputmode="numeric" placeholder="예: 9000"></label></div>
+    <div class="row" style="margin-top:10px"><button type="button" class="btn seal" data-action="ledPickManual">이 메뉴로 선택</button><label class="btn" for="ocrFile">📷 메뉴판 사진으로 등록</label><input type="file" id="ocrFile" accept="image/*" hidden></div>
+    <div class="dlg-actions"><button type="button" class="btn ghost" data-action="ledPickClear">메뉴 비우기</button><span class="grow"></span><button type="button" class="btn" data-action="ledPickBack">돌아가기</button></div>`;
+}
+function ledOcrHtml() {
+  const o = LED.ocr || { status: 'error', msg: '', items: [], raw: '' };
+  if (o.status === 'loading') return `<h2>메뉴판 읽는 중</h2><p id="ocrMsg">${esc(o.msg)}</p><div class="led-prog"><i style="width:${o.pct}%"></i></div><p class="muted small" style="margin-top:10px">처음 한 번은 글자 인식 도구(약 6MB)를 내려받느라 오래 걸릴 수 있습니다. 사진은 이 기기 밖으로 나가지 않습니다.</p><div class="dlg-actions"><span class="grow"></span><button type="button" class="btn" data-action="ledOcrCancel">취소</button></div>`;
+  if (o.status === 'error') return `<h2>읽지 못했습니다</h2><p>${esc(o.msg)}</p><div class="dlg-actions"><label class="btn" for="ocrFile">다시 찍기</label><input type="file" id="ocrFile" accept="image/*" hidden><span class="grow"></span><button type="button" class="btn" data-action="ledPickBack">돌아가기</button></div>`;
+  return `<h2>읽은 메뉴 확인</h2><p class="muted small">틀린 글자와 가격을 고친 뒤 등록하세요. 체크를 끈 줄은 등록하지 않습니다.</p>
+    ${o.items.length ? `<ul class="led-ocr">${o.items.map((it, k) => `<li><input type="checkbox" data-ocr="on" data-k="${k}"${it.on ? ' checked' : ''} aria-label="등록"><input data-ocr="n" data-k="${k}" value="${esc(it.n)}" aria-label="메뉴 이름"><input data-ocr="p" data-k="${k}" inputmode="numeric" value="${it.p}" aria-label="가격"></li>`).join('')}</ul>` : '<p style="margin:8px 0">메뉴와 가격을 찾지 못했습니다. 글자가 크게 나오도록 가까이서 다시 찍어 보세요.</p>'}
+    <details class="led-raw"><summary>읽은 원문 보기</summary><pre>${esc(o.raw)}</pre></details>
+    <div class="dlg-actions"><label class="btn" for="ocrFile">다시 찍기</label><input type="file" id="ocrFile" accept="image/*" hidden><span class="grow"></span><button type="button" class="btn" data-action="ledPickBack">돌아가기</button><button type="button" class="btn seal" data-action="ledOcrAdd">메뉴판에 등록</button></div>`;
+}
+function ledDelPersonHtml() {
+  const it = LED.items[LED.delIdx] || { name: '' };
+  return `<h2>이름 지우기</h2><p>‘${esc(it.name)}’은(는) 명단에 있습니다. 어떻게 할까요?</p><p class="muted small" style="margin-top:6px">지난 정산 기록은 그대로 남습니다.</p>
+    <div class="dlg-actions" style="flex-direction:column;align-items:stretch"><button type="button" class="btn seal" data-action="ledDelPersonRoster">명단에서도 지우기</button><button type="button" class="btn" data-action="ledDelPersonRow">이번 기록에서만 빼기</button><button type="button" class="btn ghost" data-action="ledPickBack">취소</button></div>`;
+}
+function ledRender(first) {
+  const D = LED, v = D.view || 'main';
+  const html = v === 'pick' ? ledPickHtml() : v === 'ocr' ? ledOcrHtml() : v === 'delperson' ? ledDelPersonHtml() : ledMainHtml();
+  const dlg = $('#modal .dialog'), keep = dlg ? dlg.scrollTop : 0, open = dlg && !$('#modal').hidden && dlg.dataset.led === '1';
+  if (open && !first) { dlg.innerHTML = html; dlg.scrollTop = v === 'main' ? keep : 0; }
+  else { openModal(html); const d2 = $('#modal .dialog'); if (d2) d2.dataset.led = '1'; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
+  if (v === 'main') { const det = $('#modal .led-board'); if (det && D.boardOpen) det.open = true; }
 }
 function ledTotalHtml() {
   const { sum, paid } = ledSums();
@@ -3522,23 +3573,97 @@ function ledSet(t, isChange) {
   else if (k === 'kind') D.kind = t.value;
   else if (k === 'place') {
     D.place = t.value;
-    if (isChange) { const r = S.restaurants.find(x => x.name === t.value.trim()); D.rid = r ? r.id : null; ledRender(); }
+    const r = S.restaurants.find(x => x.name === t.value.trim()); D.rid = r ? r.id : null;
+    if (isChange) ledBoardRefresh();
   }
-  else if (k === 'payer') { D.payer = t.value; if (!t.value || t.value === treasurerName()) D.reimbursedAt = null; }
+  else if (k === 'payer') { D.payer = t.value.trim(); $$('#modal .pchip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.name === D.payer))); if (!D.payer || D.payer === treasurerName()) D.reimbursedAt = null; }
   else if (k === 'paid') { D.paid = String(num(t.value) || ''); ledUpdateSum(); }
   else if (k === 'note') D.note = t.value;
-  else if (k === 'bulk') D.bulk = t.value;
   else if (k === 'amount' && i) { i.amount = String(num(t.value) || ''); i.auto = false; ledUpdateSum(); }
-  else if (k === 'menu' && i) {
-    i.menu = t.value;
-    if (isChange) {
-      const hit = menuSuggest(D.rid, D.place).find(s => s.n === t.value.trim());
-      if (hit && hit.p && (!num(i.amount) || i.auto)) { i.amount = String(hit.p); i.auto = true; const a = t.closest('li').querySelector('.led-amt'); if (a) a.value = i.amount; ledUpdateSum(); }
-    }
-  }
 }
-document.addEventListener('input', e => { if (LED && e.target.dataset && e.target.dataset.led) ledSet(e.target, false); });
-document.addEventListener('change', e => { if (LED && e.target.dataset && e.target.dataset.led) ledSet(e.target, true); });
+document.addEventListener('input', e => {
+  const t = e.target; if (!LED || !t.dataset) return;
+  if (t.dataset.led) ledSet(t, false);
+  else if (t.dataset.ocr && LED.ocr && LED.ocr.items[+t.dataset.k]) { const it = LED.ocr.items[+t.dataset.k]; if (t.dataset.ocr === 'n') it.n = t.value; else if (t.dataset.ocr === 'p') it.p = num(t.value); }
+});
+document.addEventListener('change', e => {
+  const t = e.target; if (!LED || !t.dataset) return;
+  if (t.dataset.led) ledSet(t, true);
+  else if (t.dataset.ocr === 'on' && LED.ocr && LED.ocr.items[+t.dataset.k]) LED.ocr.items[+t.dataset.k].on = t.checked;
+  else if (t.id === 'ocrFile' && t.files && t.files[0]) { const f = t.files[0]; t.value = ''; runOcr(f); }
+});
+
+/* 메뉴판 사진 읽기(OCR): 글자 인식은 이 기기 안에서 실행한다 */
+const OCR_SRC = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+const OCR_SRI = 'sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F';
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  return new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = OCR_SRC; s.integrity = OCR_SRI; s.crossOrigin = 'anonymous';
+    s.onload = () => res(window.Tesseract); s.onerror = () => rej(new Error('글자 인식 도구를 내려받지 못했습니다. 인터넷 연결을 확인하세요.'));
+    document.head.appendChild(s);
+  });
+}
+async function ocrPrepare(file) {
+  let src;
+  try { src = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch (e) { src = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('사진을 열지 못했습니다.')); im.src = URL.createObjectURL(file); }); }
+  const w0 = src.width, h0 = src.height, k = Math.min(2000 / Math.max(w0, h0), 2.5), w = Math.max(1, Math.round(w0 * k)), h = Math.max(1, Math.round(h0 * k));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(src, 0, 0, w, h);
+  const im = g.getImageData(0, 0, w, h), d = im.data; let lo = 255, hi = 0, sum = 0;
+  for (let p = 0; p < d.length; p += 4) { const y = (d[p] * 0.299 + d[p + 1] * 0.587 + d[p + 2] * 0.114) | 0; d[p] = y; if (y < lo) lo = y; if (y > hi) hi = y; sum += y; }
+  const mean = sum / (d.length / 4), span = Math.max(1, hi - lo), inv = mean < 110;
+  for (let p = 0; p < d.length; p += 4) { let v = ((d[p] - lo) * 255 / span) | 0; if (inv) v = 255 - v; d[p] = d[p + 1] = d[p + 2] = v; }
+  g.putImageData(im, 0, 0);
+  return c;
+}
+function parseMenuText(text) {
+  const out = [], seen = new Set();
+  for (let line of String(text || '').split(/\r?\n/)) {
+    line = line.replace(/[|｜·•○●□■◆◇※★☆]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!line) continue;
+    const m = line.match(/(\d{1,3}[,.]\d{3}|\d{4,6})\s*원?\s*$/) || line.match(/(\d{1,3}[,.]\d{3}|\d{4,6})\s*원?/);
+    if (!m) continue;
+    const price = parseInt(m[1].replace(/[,.]/g, ''), 10);
+    if (!(price >= 1000 && price <= 300000)) continue;
+    let name = line.slice(0, m.index).replace(/[.·…\-_~:：\s]+$/g, '').replace(/^[\d.\-)\s]+/, '').trim();
+    if (name.length > 24) name = name.slice(-24).trim();
+    if (!/[가-힣A-Za-z]/.test(name) || seen.has(name)) continue;
+    seen.add(name); out.push({ on: true, n: name, p: price });
+  }
+  return out;
+}
+let ocrToken = 0;
+async function runOcr(file) {
+  const tok = ++ocrToken, D = LED;
+  if (!D.place.trim()) { toast('장소를 먼저 적어 주세요.'); return; }
+  const o = D.ocr = { status: 'loading', msg: '사진을 준비하는 중…', pct: 3, items: [], raw: '' };
+  D.view = 'ocr'; ledRender();
+  const upd = (msg, pct) => { if (tok !== ocrToken || !LED || LED.view !== 'ocr') return; o.msg = msg; o.pct = pct; const b = $('#modal .led-prog i'), m = $('#ocrMsg'); if (b) b.style.width = pct + '%'; if (m) m.textContent = msg; };
+  try {
+    const canvas = await ocrPrepare(file); upd('글자 인식 도구를 불러오는 중…', 8);
+    const T = await loadTesseract();
+    const worker = await T.createWorker('kor', 1, {
+      workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+      corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.0.0',
+      langPath: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/kor/4.0.0_best_int',
+      logger: m => { if (m.status === 'recognizing text') upd('메뉴를 읽는 중…', 40 + Math.round(m.progress * 55)); else upd('글자 인식 준비 중…', 12 + Math.round((m.progress || 0) * 25)); },
+    });
+    try {
+      await worker.setParameters({ preserve_interword_spaces: '1' });
+      const { data } = await worker.recognize(canvas);
+      if (tok !== ocrToken) return;
+      o.raw = data.text || ''; o.items = parseMenuText(o.raw); o.status = 'done';
+    } finally { await worker.terminate(); }
+  } catch (e) { if (tok !== ocrToken) return; o.status = 'error'; o.msg = (e && e.message) || String(e); }
+  if (tok === ocrToken && LED && LED.view === 'ocr') ledRender();
+}
+function ledApplyMenu(n, p) {
+  const D = LED, list = D.pickTarget === 'all' ? D.items.filter(i => i.on) : [D.items[D.pickTarget]].filter(Boolean);
+  for (const i of list) { i.menu = n; if (p > 0) { i.amount = String(p); i.auto = true; } if (D.pickTarget !== 'all') i.on = true; }
+  D.view = 'main'; ledRender();
+}
 function ledScale() {
   const D = LED, { on, sum, paid } = ledSums();
   if (!on.length || !paid || !sum) return;
@@ -3739,10 +3864,19 @@ const actions = {
   ledEdit: el => openLedger(el.dataset.id),
   ledMonth: el => { const [y, m] = LG.month.split('-').map(Number), d = new Date(y, m - 1 + +el.dataset.d, 1); LG.month = d.getFullYear() + '-' + pad(d.getMonth() + 1); renderLedger(); },
   ledToggle: el => { const i = LED.items[+el.dataset.i]; if (i) { i.on = !i.on; ledRender(); } },
-  ledBulk: () => { const D = LED, name = D.bulk.trim(); if (!name) return; const hit = menuSuggest(D.rid, D.place).find(s => s.n === name); for (const i of D.items) if (i.on) { i.menu = name; if (hit && hit.p) { i.amount = String(hit.p); i.auto = true; } } ledRender(); },
   ledAddPerson: () => { const n = $('#ledNew').value.trim(); if (!n) return; if (LED.items.some(i => i.name === n)) { toast('이미 있는 이름입니다.'); return; } LED.items.push({ name: n, on: true, menu: '', amount: '', auto: false }); ledRender(); },
   ledScale,
-  ledMenuAdd: () => { const n = $('#lmN').value.trim(), p = num($('#lmP').value); if (!n || !p) { toast('메뉴 이름과 가격을 적어 주세요.'); return; } learnMenu(LED.rid, LED.place.trim(), n, p); save(); LED.boardOpen = true; ledRender(); },
+  ledMenuPick: el => { LED.pickTarget = el.dataset.i === 'all' ? 'all' : +el.dataset.i; LED.view = 'pick'; ledRender(); },
+  ledPickItem: el => { const s = menuSuggest(LED.rid, LED.place)[+el.dataset.k]; if (s) ledApplyMenu(s.n, s.p || 0); },
+  ledPickManual: () => { const n = $('#pkN').value.trim(), p = num($('#pkP').value); if (!n) { toast('메뉴 이름을 적어 주세요.'); return; } if (p > 0 && LED.place.trim()) { learnMenu(LED.rid, LED.place.trim(), n, p); save(); } ledApplyMenu(n, p); },
+  ledPickClear: () => { const D = LED, list = D.pickTarget === 'all' ? D.items.filter(i => i.on) : [D.items[D.pickTarget]].filter(Boolean); for (const i of list) i.menu = ''; D.view = 'main'; ledRender(); },
+  ledPickBack: () => { LED.view = LED.view === 'ocr' ? 'pick' : 'main'; ledRender(); },
+  ledOcrCancel: () => { ocrToken++; LED.view = 'pick'; ledRender(); },
+  ledOcrAdd: () => { const D = LED, items = ((D.ocr && D.ocr.items) || []).filter(i => i.on && i.n.trim() && i.p > 0); if (!items.length) { toast('등록할 메뉴가 없습니다.'); return; } for (const i of items) learnMenu(D.rid, D.place.trim(), i.n.trim(), i.p); save(); toast(`메뉴 ${items.length}개를 등록했습니다.`); D.view = 'pick'; ledRender(); },
+  ledPayer: el => { const D = LED; D.payer = D.payer === el.dataset.name ? '' : el.dataset.name; if (!D.payer || D.payer === treasurerName()) D.reimbursedAt = null; ledRender(); },
+  ledRemovePerson: el => { const k = +el.dataset.i, it = LED.items[k]; if (!it) return; if (S.roster.some(m => m.name === it.name)) { LED.delIdx = k; LED.view = 'delperson'; ledRender(); } else { LED.items.splice(k, 1); ledRender(); } },
+  ledDelPersonRoster: () => { const it = LED.items[LED.delIdx]; if (it) { S.roster = S.roster.filter(m => m.name !== it.name); LED.items.splice(LED.delIdx, 1); save(); renderToday(); } LED.view = 'main'; ledRender(); },
+  ledDelPersonRow: () => { LED.items.splice(LED.delIdx, 1); LED.view = 'main'; ledRender(); },  ledMenuAdd: () => { const n = $('#lmN').value.trim(), p = num($('#lmP').value); if (!n || !p) { toast('메뉴 이름과 가격을 적어 주세요.'); return; } learnMenu(LED.rid, LED.place.trim(), n, p); save(); LED.boardOpen = true; ledRender(); },
   ledMenuDel: el => { const list = S.ledger.menus[menuKey(LED.rid, LED.place.trim())]; if (list) { list.splice(+el.dataset.k, 1); save(); } LED.boardOpen = true; ledRender(); },
   ledSave,
   ledAskDelete: () => openModal(`<h2>기록 지우기</h2><p>이 식비 기록을 지웁니다. 사람별 합계에서도 빠집니다.</p><div class="dlg-actions"><span class="grow"></span><button type="button" class="btn" data-action="ledBack">돌아가기</button><button type="button" class="btn seal" data-action="ledDoDelete">지우기</button></div>`),
