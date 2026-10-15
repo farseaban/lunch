@@ -351,6 +351,12 @@ p{margin:0}
 .led-sug-i small{color:var(--ink-3);font-size:12px;font-weight:400}
 .led-sug-i mark{background:var(--seal-soft);color:var(--seal-text);border-radius:3px;padding:0 1px;font-weight:700}
 .led-sug-i.new{color:var(--ink-2);font-weight:600}
+.led-rc{list-style:none;margin:8px 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.led-rc li{display:grid;grid-template-columns:auto minmax(0,1fr) 84px 52px;gap:6px;align-items:center}
+.led-rc-h{font-size:11.5px;color:var(--ink-3)}
+.led-rc input:not([type=checkbox]){height:38px;border:1px solid var(--line-2);border-radius:9px;padding:0 8px;background:var(--surface);min-width:0}
+.led-rc input[type=checkbox]{width:18px;height:18px;accent-color:var(--seal)}
+.led-scan{margin-bottom:6px}
 .led-raw{margin-top:8px;font-size:12.5px}
 .led-raw pre{white-space:pre-wrap;font:12px/1.5 ui-monospace,Consolas,monospace;background:var(--surface-2);padding:8px;border-radius:8px;max-height:160px;overflow:auto;margin:6px 0 0}
 @media (max-width:520px){.dialog{padding:16px}}
@@ -3626,7 +3632,7 @@ function ledBoardHtml() {
   return `<details class="led-board"><summary>메뉴판 (${esc(D.place || '이 가게')})</summary>
       ${D.place || D.rid ? `<ul>${board.map((m, k) => `<li><span>${esc(m.n)}</span><b>${won(m.p)}원</b><button type="button" class="link" data-action="ledMenuDel" data-k="${k}">지우기</button></li>`).join('') || '<li class="muted small">아직 없습니다. 메뉴와 금액을 적어 저장하면 다음부터 골라 쓸 수 있습니다.</li>'}</ul>
       <div class="inline"><input id="lmN" placeholder="메뉴" aria-label="메뉴 이름"><input id="lmP" inputmode="numeric" placeholder="가격" aria-label="가격" style="max-width:100px"><button type="button" class="btn sm" data-action="ledMenuAdd">추가</button></div>
-      <div class="row" style="margin-top:8px"><label class="btn sm" for="ocrFile">📷 메뉴판 사진으로 등록</label><input type="file" id="ocrFile" accept="image/*" class="vh"></div>` : '<p class="muted small">장소를 먼저 적어 주세요.</p>'}
+      <div class="row" style="margin-top:8px"><label class="btn sm" for="ocrFile">📷 영수증·메뉴판 사진 읽기</label></div>` : '<p class="muted small">장소를 먼저 적어 주세요.</p>'}
     </details>`;
 }
 function ledBoardRefresh() {
@@ -3638,6 +3644,8 @@ function ledMainHtml() {
   const D = LED, t = treasurerName();
   const cands = [...new Set([t, ...S.roster.map(m => m.name), ...D.items.map(i => i.name), D.payer].filter(Boolean))];
   return `<h2>${D.id ? '식비 수정' : '식비 기록'}</h2>
+    <div class="row led-scan"><label class="btn seal" for="ocrFile">📷 영수증 사진으로 채우기</label><button type="button" class="btn" data-action="ledPasteOpen">📋 글자 붙여넣기</button><input type="file" id="ocrFile" accept="image/*" class="vh"></div>
+    <p class="muted small" style="margin-bottom:6px">영수증을 찍으면 가게·날짜·합계·품목을 채워 줍니다. 글자는 틀릴 수 있으니 확인하세요.</p>
     <div class="form led-form">
       <label>날짜<input type="date" data-led="date" value="${esc(D.date)}"></label>
       <label>종류<select data-led="kind">${LED_KINDS.map(([k, l]) => `<option value="${k}"${k === D.kind ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -3665,17 +3673,47 @@ function ledPickHtml() {
   return `<h2>메뉴 선택</h2><p class="muted small">${esc(D.place || '장소 미입력')} · ${esc(who || '')}</p>
     ${sug.length ? `<ul class="led-picks">${sug.map((s, k) => `<li><button type="button" class="led-pick" data-action="ledPickItem" data-k="${k}"><span>${esc(s.n)}</span><b>${s.p ? won(s.p) + '원' : ''}</b></button></li>`).join('')}</ul>` : '<p class="muted small" style="margin:8px 0">이 가게의 메뉴판이 아직 비어 있습니다. 아래에 직접 적거나 사진으로 등록하세요.</p>'}
     <div class="form" style="margin-top:12px"><label>직접 입력: 메뉴 이름<input id="pkN" autocomplete="off" placeholder="예: 김치찌개"></label><label>가격(원)<input id="pkP" inputmode="numeric" placeholder="예: 9000"></label></div>
-    <div class="row" style="margin-top:10px"><button type="button" class="btn seal" data-action="ledPickManual">이 메뉴로 선택</button><label class="btn" for="ocrFile">📷 메뉴판 사진으로 등록</label><input type="file" id="ocrFile" accept="image/*" class="vh"></div>
+    <div class="row" style="margin-top:10px"><button type="button" class="btn seal" data-action="ledPickManual">이 메뉴로 선택</button><label class="btn" for="ocrFile">📷 영수증·메뉴판 사진 읽기</label><button type="button" class="btn" data-action="ledPasteOpen">📋 글자 붙여넣기</button><input type="file" id="ocrFile" accept="image/*" class="vh"></div>
     <div class="dlg-actions"><button type="button" class="btn ghost" data-action="ledPickClear">메뉴 비우기</button><span class="grow"></span><button type="button" class="btn" data-action="ledPickBack">돌아가기</button></div>`;
 }
 function ledOcrHtml() {
   const o = LED.ocr || { status: 'error', msg: '', items: [], raw: '' };
-  if (o.status === 'loading') return `<h2>메뉴판 읽는 중</h2><p id="ocrMsg">${esc(o.msg)}</p><div class="led-prog"><i style="width:${o.pct}%"></i></div><p class="muted small" style="margin-top:10px">처음 한 번은 글자 인식 도구(약 6MB)를 내려받느라 오래 걸릴 수 있습니다. 사진은 이 기기 밖으로 나가지 않습니다.</p><div class="dlg-actions"><span class="grow"></span><button type="button" class="btn" data-action="ledOcrCancel">취소</button></div>`;
+  if (o.status === 'loading') return `<h2>사진 읽는 중</h2><p id="ocrMsg">${esc(o.msg)}</p><div class="led-prog"><i style="width:${o.pct}%"></i></div><p class="muted small" style="margin-top:10px">처음 한 번은 글자 인식 도구(약 6MB)를 내려받느라 오래 걸릴 수 있습니다. 사진은 이 기기 밖으로 나가지 않습니다.</p><div class="dlg-actions"><span class="grow"></span><button type="button" class="btn" data-action="ledOcrCancel">취소</button></div>`;
   if (o.status === 'error') return `<h2>읽지 못했습니다</h2><p>${esc(o.msg)}</p><div class="dlg-actions"><label class="btn" for="ocrFile">다시 찍기</label><input type="file" id="ocrFile" accept="image/*" class="vh"><span class="grow"></span><button type="button" class="btn" data-action="ledPickBack">돌아가기</button></div>`;
+  if (o.kind === 'receipt' && o.rc) return ledRcptHtml();
   return `<h2>읽은 메뉴 확인</h2><p class="muted small">틀린 글자와 가격을 고친 뒤 등록하세요. 체크를 끈 줄은 등록하지 않습니다.</p>
     ${o.items.length ? `<ul class="led-ocr">${o.items.map((it, k) => `<li><input type="checkbox" data-ocr="on" data-k="${k}"${it.on ? ' checked' : ''} aria-label="등록"><input data-ocr="n" data-k="${k}" value="${esc(it.n)}" aria-label="메뉴 이름"><input data-ocr="p" data-k="${k}" inputmode="numeric" value="${it.p}" aria-label="가격"></li>`).join('')}</ul>` : '<p style="margin:8px 0">메뉴와 가격을 찾지 못했습니다. 글자가 크게 나오도록 가까이서 다시 찍어 보세요.</p>'}
     <details class="led-raw"><summary>읽은 원문 보기</summary><pre>${esc(o.raw)}</pre></details>
     <div class="dlg-actions"><label class="btn" for="ocrFile">다시 찍기</label><input type="file" id="ocrFile" accept="image/*" class="vh"><span class="grow"></span><button type="button" class="btn" data-action="ledPickBack">돌아가기</button><button type="button" class="btn seal" data-action="ledOcrAdd">메뉴판에 등록</button></div>`;
+}
+function ledRcptHtml() {
+  const o = LED.ocr, rc = o.rc, m = rc.match;
+  return `<h2>영수증 읽은 결과</h2><p class="muted small">숫자(합계·날짜·전화)는 대체로 정확하지만 글자는 틀릴 수 있습니다. 확인하고 고쳐 주세요.</p>
+    <div class="form led-form" style="margin-top:10px"><label class="full">상호<input data-rc="store" value="${esc(rc.store)}" autocomplete="off"></label>
+      <div class="led-ps full${m ? ' ok' : ''}">${m ? `✓ 식당 목록의 ‘${esc(m.r.name)}’과 연결됩니다 (${esc(m.why.join('·'))} 일치) <button type="button" class="link" data-action="ledRcUnlink">연결 해제</button>` : '식당 목록에서 찾지 못했습니다. 상호 그대로 새 장소로 기록합니다.'}</div>
+      <label>날짜<input type="date" data-rc="date" value="${esc(rc.date)}"></label>
+      <label>영수증 합계(원)<input data-rc="total" inputmode="numeric" value="${rc.total || ''}"></label></div>
+    <div class="sec-h" style="margin-top:12px"><h3>품목</h3><span id="rcSum">${esc(rcSumText())}</span></div>
+    ${rc.items.length ? `<ul class="led-rc"><li class="led-rc-h"><span></span><span>메뉴</span><span>단가</span><span>수량</span></li>${rc.items.map((it, k) => `<li><input type="checkbox" data-rc="on" data-k="${k}"${it.on ? ' checked' : ''} aria-label="사용"><input data-rc="name" data-k="${k}" value="${esc(it.name)}" placeholder="메뉴 이름" aria-label="메뉴 이름"><input data-rc="unit" data-k="${k}" inputmode="numeric" value="${it.unit}" aria-label="단가"><input data-rc="qty" data-k="${k}" inputmode="numeric" value="${it.qty}" aria-label="수량"></li>`).join('')}</ul>` : '<p class="muted small" style="margin:8px 0">품목을 찾지 못했습니다. 장소·날짜·합계만 적용됩니다.</p>'}
+    <details class="led-raw"><summary>읽은 원문 보기</summary><pre>${esc(o.raw)}</pre></details>
+    <div class="dlg-actions"><label class="btn" for="ocrFile">다시 찍기</label><input type="file" id="ocrFile" accept="image/*" class="vh"><span class="grow"></span><button type="button" class="btn" data-action="ledPickBack">돌아가기</button><button type="button" class="btn seal" data-action="ledRcptApply">기록에 넣기</button></div>`;
+}
+function ledPasteHtml() {
+  return `<h2>글자 붙여넣기</h2><p class="muted small">아이폰: 카메라나 사진 앱에서 영수증 글자를 길게 눌러 <b>텍스트 복사</b>한 뒤 아래에 붙여 넣으세요. 사진 인식보다 훨씬 정확합니다.</p>
+    <textarea id="pasteTxt" class="copybox" rows="9" placeholder="영수증 또는 메뉴판 글을 붙여 넣기"></textarea>
+    <div class="dlg-actions"><span class="grow"></span><button type="button" class="btn" data-action="ledPickBack">돌아가기</button><button type="button" class="btn seal" data-action="ledPasteRead">읽기</button></div>`;
+}
+function rcSet(t) {
+  const rc = LED.ocr && LED.ocr.rc; if (!rc) return;
+  const f = t.dataset.rc, it = t.dataset.k != null ? rc.items[+t.dataset.k] : null;
+  if (f === 'store') rc.store = t.value;
+  else if (f === 'date') rc.date = t.value;
+  else if (f === 'total') rc.total = num(t.value);
+  else if (it && f === 'name') it.name = t.value;
+  else if (it && f === 'unit') it.unit = num(t.value);
+  else if (it && f === 'qty') it.qty = num(t.value);
+  else if (it && f === 'on') it.on = t.checked;
+  const s = $('#rcSum'); if (s) s.textContent = rcSumText();
 }
 function ledDelPersonHtml() {
   const it = LED.items[LED.delIdx] || { name: '' };
@@ -3684,7 +3722,7 @@ function ledDelPersonHtml() {
 }
 function ledRender(first) {
   const D = LED, v = D.view || 'main';
-  const html = v === 'pick' ? ledPickHtml() : v === 'ocr' ? ledOcrHtml() : v === 'delperson' ? ledDelPersonHtml() : ledMainHtml();
+  const html = v === 'pick' ? ledPickHtml() : v === 'ocr' ? ledOcrHtml() : v === 'delperson' ? ledDelPersonHtml() : v === 'paste' ? ledPasteHtml() : ledMainHtml();
   const dlg = $('#modal .dialog'), keep = dlg ? dlg.scrollTop : 0, open = dlg && !$('#modal').hidden && dlg.dataset.led === '1';
   if (open && !first) { dlg.innerHTML = html; dlg.scrollTop = v === 'main' ? keep : 0; }
   else { openModal(html); const d2 = $('#modal .dialog'); if (d2) d2.dataset.led = '1'; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
@@ -3692,7 +3730,7 @@ function ledRender(first) {
 }
 function ledTotalHtml() {
   const { sum, paid } = ledSums();
-  return `합계 <b id="ledSum">${won(sum)}</b>원${paid !== sum ? ` · 지불 <b>${won(paid)}</b>원 <button type="button" class="btn sm" data-action="ledScale">지불액에 맞춰 비례 조정</button>` : ''}`;
+  return `합계 <b id="ledSum">${won(sum)}</b>원${LED.rcTotal ? ` <span class="muted small">· 영수증 ${won(LED.rcTotal)}원 ${sum === LED.rcTotal ? '✓ 일치' : '(합계와 다름)'}</span>` : ''}${paid !== sum ? ` · 지불 <b>${won(paid)}</b>원 <button type="button" class="btn sm" data-action="ledScale">지불액에 맞춰 비례 조정</button>` : ''}`;
 }
 function ledUpdateSum() { const box = $('.led-total2'); if (box) box.innerHTML = ledTotalHtml(); }
 function ledSet(t, isChange) {
@@ -3712,19 +3750,18 @@ function ledSet(t, isChange) {
 document.addEventListener('input', e => {
   const t = e.target; if (!LED || !t.dataset) return;
   if (t.dataset.led) ledSet(t, false);
+  else if (t.dataset.rc) rcSet(t);
   else if (t.dataset.ocr && LED.ocr && LED.ocr.items[+t.dataset.k]) { const it = LED.ocr.items[+t.dataset.k]; if (t.dataset.ocr === 'n') it.n = t.value; else if (t.dataset.ocr === 'p') it.p = num(t.value); }
 });
 document.addEventListener('change', e => {
   const t = e.target; if (!LED || !t.dataset) return;
   if (t.dataset.led) ledSet(t, true);
+  else if (t.dataset.rc === 'on') rcSet(t);
   else if (t.dataset.ocr === 'on' && LED.ocr && LED.ocr.items[+t.dataset.k]) LED.ocr.items[+t.dataset.k].on = t.checked;
   else if (t.id === 'ocrFile' && t.files && t.files[0]) { const f = t.files[0]; t.value = ''; runOcr(f); }
 });
 
-document.addEventListener('click', e => {
-  const l = e.target.closest && e.target.closest('label[for="ocrFile"]');
-  if (l && LED && !LED.place.trim()) { e.preventDefault(); toast('장소를 먼저 적어 주세요.'); }
-});
+
 /* 메뉴판 사진 읽기(OCR): 글자 인식은 이 기기 안에서 실행한다 */
 const OCR_SRC = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
 const OCR_SRI = 'sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F';
@@ -3736,16 +3773,129 @@ function loadTesseract() {
     document.head.appendChild(s);
   });
 }
+/* ---------- 영수증·메뉴판 해석 ---------- */
+function lev(a, b) {
+  a = String(a); b = String(b);
+  if (a === b) return 0;
+  const m = a.length, n = b.length; if (!m) return n; if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+function numsIn(line) {
+  const out = [], re = /\d{1,3}(?:[,.]\s?\d{3})+|\d+/g; let m;
+  while ((m = re.exec(line))) out.push({ v: parseInt(m[0].replace(/[,.\s]/g, ''), 10), raw: m[0], i: m.index, end: m.index + m[0].length });
+  return out;
+}
+const RC_WORDS = /영수증|합\s*계|승인|신용|카드|부가세|상품명|단가|수량|매장명|사업자|과세|면세|거래/g;
+const receiptKind = text => ((String(text).match(RC_WORDS) || []).length >= 2 ? 'receipt' : 'menu');
+const hangulName = s => String(s).replace(/[^가-힣A-Za-z0-9()&\s]/g, ' ').replace(/\b\d{4,}\b/g, ' ').replace(/\s+/g, ' ').trim();
+const hasKo = s => (String(s).match(/[가-힣]/g) || []).length >= 2;
+function roadNo(addr) {
+  const m = String(addr || '').match(/(\S{1,12}?(?:로|길)\d*(?:번길)?)\s*(\d+(?:-\d+)?)/);
+  return m ? { road: m[1].replace(/^.*\s/, ''), no: m[2] } : null;
+}
+function parseReceipt(text) {
+  const lines = String(text || '').split(/\r?\n/).map(l => l.replace(/[|｜]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const rc = { store: '', phone: '', road: null, date: '', total: 0, items: [], sum: 0 };
+  const p2 = n => String(n).padStart(2, '0');
+  for (const l of lines) {
+    const m = l.match(/(20\d{2})\s*[-./]\s*(\d{1,2})\s*[-./]\s*(\d{1,2})/);
+    if (m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31) { rc.date = `${m[1]}-${p2(m[2])}-${p2(m[3])}`; break; }
+  }
+  for (const l of lines) {
+    const m = l.match(/(0\d{1,2})\s*[-)\].\s]\s*(\d{3,4})\s*-\s*(\d{4})/);
+    if (m) { rc.phone = m[1] + m[2] + m[3]; break; }
+  }
+  for (const l of lines) {
+    if (!/주\s*소|대전|서구|동구|중구|유성|대덕|시\s|구\s/.test(l)) continue;
+    const r = roadNo(l); if (r) { rc.road = r; break; }
+  }
+  for (const l of String(text || '').split(/\r?\n/)) {
+    const m = l.match(/(?:매\s*장\s*명|상\s*호(?:\s*명)?|가맹점\s*명|업\s*소\s*명)\s*[:\]]?\s*(.+)$/);
+    if (!m) continue;
+    const words = []; for (const w of m[1].replace(/^[\]:\s]+/, '').split(/\s{3,}/)[0].split(' ')) { if (/[가-힣A-Za-z]/.test(w) || w.length >= 3) words.push(w.replace(/[^가-힣A-Za-z0-9()&]/g, '')); else break; }
+    rc.store = words.join(' ').trim(); if (rc.store) break;
+  }
+  const bad = /사업자|TEL|전화|승인\s*번|가맹|카드\s*번|일시|주문|등록|대표|할부/;
+  const cnt = new Map();
+  for (const l of lines) {
+    const hot = /합\s*계|승인\s*금|결제\s*금|받을|총\s*금/.test(l) ? 3 : 0;
+    if (bad.test(l) && !hot) continue;
+    if (/부\s*가\s*세|판\s*매\s*금\s*액|공급|면세|과세/.test(l)) continue;
+    if (/\d{4}\s*[-./]\s*\d/.test(l) || /\d{2,4}\s*-\s*\d{2,4}\s*-\s*\d{3,}/.test(l)) continue;
+    for (const n of numsIn(l)) if (n.v >= 1000 && n.v <= 5000000) cnt.set(n.v, (cnt.get(n.v) || 0) + 1 + hot);
+  }
+  rc.total = ([...cnt.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0] || [0])[0];
+  const skip = /합\s*계|승인|부\s*가\s*세|판\s*매|카드|거래|할부|사업자|전화|TEL|주\s*소|주\s*문|대표/;
+  for (let k = 0; k < lines.length; k++) {
+    const line = lines[k]; if (skip.test(line)) continue;
+    const ns = numsIn(line); let hit = null;
+    for (let a = 0; a + 2 < ns.length && !hit; a++) {
+      const u = ns[a].v, q = ns[a + 1].v, amt = ns[a + 2].v;
+      if (u >= 500 && q >= 1 && q <= 99 && u * q === amt) hit = { at: a, u, q, amt };
+    }
+    if (!hit) for (let a = 0; a + 1 < ns.length && !hit; a++) if (ns[a].v >= 1000 && ns[a].v === ns[a + 1].v && ns[a].v !== rc.total) hit = { at: a, u: ns[a].v, q: 1, amt: ns[a].v };
+    if (!hit) continue;
+    let name = hangulName(line.slice(0, ns[hit.at].i));
+    if (!hasKo(name)) { for (let b = k - 1; b >= 0 && b >= k - 2; b--) { const cand = hangulName(lines[b]); if (hasKo(cand) && !skip.test(lines[b]) && !/상품명|단가|수량|금액/.test(lines[b])) { name = cand; break; } } }
+    rc.items.push({ on: true, name, unit: hit.u, qty: hit.q });
+  }
+  if (!rc.items.length) {
+    for (const line of lines) {
+      if (skip.test(line)) continue;
+      const ns = numsIn(line).filter(n => n.v >= 1000 && n.v <= 300000 && n.v !== rc.total); if (ns.length !== 1) continue;
+      const name = hangulName(line.slice(0, ns[0].i)); if (hasKo(name) && name.length <= 24) rc.items.push({ on: true, name, unit: ns[0].v, qty: 1 });
+    }
+  }
+  rc.sum = rc.items.reduce((a, i) => a + i.unit * i.qty, 0);
+  return rc;
+}
+function matchReceiptRestaurant(rc, restaurants) {
+  const dg = s => String(s || '').replace(/\D/g, ''), pd = dg(rc.phone), nn = normQ(rc.store);
+  let best = null;
+  for (const r of restaurants) {
+    let sc = 0; const why = [];
+    const td = dg(r.tel);
+    if (pd.length >= 8 && td.length >= 8) { const d = lev(pd, td); if (d <= 1) { sc += 60 - d * 10; why.push('전화번호'); } }
+    const ra = rc.road && roadNo(r.addr);
+    if (ra && ra.road === rc.road.road && ra.no === rc.road.no) { sc += 50; why.push('주소'); }
+    const rn = normQ(r.name);
+    if (nn && rn) { const d = lev(nn, rn), lim = Math.max(1, Math.floor(Math.max(nn.length, rn.length) / 4)); if (d <= lim) { sc += 50 - d * 8; why.push('이름'); } }
+    if (sc >= 45 && (!best || sc > best.sc)) best = { r, sc, why };
+  }
+  return best;
+}
+
 async function ocrPrepare(file) {
   let src;
   try { src = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
   catch (e) { src = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('사진을 열지 못했습니다.')); im.src = URL.createObjectURL(file); }); }
-  const w0 = src.width, h0 = src.height, k = Math.min(2000 / Math.max(w0, h0), 2.5), w = Math.max(1, Math.round(w0 * k)), h = Math.max(1, Math.round(h0 * k));
+  const W = src.width, H = src.height;
+  // 영수증처럼 밝고 색이 옅은 종이 영역을 찾아 그 부분만 잘라 읽는다
+  const sw = 300, sh = Math.max(1, Math.round(sw * H / W)), sc = document.createElement('canvas'); sc.width = sw; sc.height = sh;
+  const sg = sc.getContext('2d', { willReadFrequently: true }); sg.drawImage(src, 0, 0, sw, sh);
+  const sd = sg.getImageData(0, 0, sw, sh).data; let x0 = sw, x1 = 0, y0 = sh, y1 = 0, cnt = 0;
+  for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
+    const o = (y * sw + x) * 4, r = sd[o], g = sd[o + 1], b = sd[o + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    if (mx > 150 && mx - mn < 45) { cnt++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  let bx = 0, by = 0, bw = W, bh = H, cropped = false;
+  const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+  if (cnt > sw * sh * 0.08 && area < sw * sh * 0.92 && cnt > area * 0.4) {
+    const k = W / sw; bx = Math.max(0, Math.floor((x0 - 4) * k)); by = Math.max(0, Math.floor((y0 - 4) * k));
+    bw = Math.min(W - bx, Math.ceil((x1 - x0 + 9) * k)); bh = Math.min(H - by, Math.ceil((y1 - y0 + 9) * k)); cropped = true;
+  }
+  const scale = Math.min(2, 2400 / Math.max(bw, bh)), w = Math.max(1, Math.round(bw * scale)), h = Math.max(1, Math.round(bh * scale));
   const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(src, 0, 0, w, h);
+  const g = c.getContext('2d', { willReadFrequently: true }); g.imageSmoothingQuality = 'high'; g.drawImage(src, bx, by, bw, bh, 0, 0, w, h);
   const im = g.getImageData(0, 0, w, h), d = im.data; let lo = 255, hi = 0, sum = 0;
   for (let p = 0; p < d.length; p += 4) { const y = (d[p] * 0.299 + d[p + 1] * 0.587 + d[p + 2] * 0.114) | 0; d[p] = y; if (y < lo) lo = y; if (y > hi) hi = y; sum += y; }
-  const mean = sum / (d.length / 4), span = Math.max(1, hi - lo), inv = mean < 110;
+  const mean = sum / (d.length / 4), span = Math.max(1, hi - lo), inv = !cropped && mean < 110;
   for (let p = 0; p < d.length; p += 4) { let v = ((d[p] - lo) * 255 / span) | 0; if (inv) v = 255 - v; d[p] = d[p + 1] = d[p + 2] = v; }
   g.putImageData(im, 0, 0);
   return c;
@@ -3767,10 +3917,20 @@ function parseMenuText(text) {
   return out;
 }
 let ocrToken = 0;
+// 글자(또는 붙여넣은 글)를 영수증/메뉴판으로 해석해 확인 화면 상태로 만든다
+function ocrInterpret(raw) {
+  const o = LED.ocr, kind = receiptKind(raw);
+  o.raw = raw; o.kind = 'menu'; o.items = [];
+  if (kind === 'receipt') {
+    const rc = parseReceipt(raw);
+    if (rc.items.length || rc.total) { rc.match = matchReceiptRestaurant(rc, S.restaurants); o.kind = 'receipt'; o.rc = rc; }
+  }
+  if (o.kind === 'menu') o.items = parseMenuText(raw);
+  o.status = 'done';
+}
 async function runOcr(file) {
   const tok = ++ocrToken, D = LED;
-  if (!D.place.trim()) { toast('장소를 먼저 적어 주세요.'); return; }
-  const o = D.ocr = { status: 'loading', msg: '사진을 준비하는 중…', pct: 3, items: [], raw: '' };
+  const o = D.ocr = { status: 'loading', msg: '사진을 준비하는 중…', pct: 3, items: [], raw: '', kind: 'menu' };
   D.view = 'ocr'; ledRender();
   const upd = (msg, pct) => { if (tok !== ocrToken || !LED || LED.view !== 'ocr') return; o.msg = msg; o.pct = pct; const b = $('#modal .led-prog i'), m = $('#ocrMsg'); if (b) b.style.width = pct + '%'; if (m) m.textContent = msg; };
   try {
@@ -3780,16 +3940,46 @@ async function runOcr(file) {
       workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
       corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.0.0',
       langPath: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/kor/4.0.0_best_int',
-      logger: m => { if (m.status === 'recognizing text') upd('메뉴를 읽는 중…', 40 + Math.round(m.progress * 55)); else upd('글자 인식 준비 중…', 12 + Math.round((m.progress || 0) * 25)); },
+      logger: m => { if (m.status === 'recognizing text') upd('글자를 읽는 중…', 40 + Math.round(m.progress * 55)); else upd('글자 인식 준비 중…', 12 + Math.round((m.progress || 0) * 25)); },
     });
     try {
-      await worker.setParameters({ preserve_interword_spaces: '1' });
-      const { data } = await worker.recognize(canvas);
-      if (tok !== ocrToken) return;
-      o.raw = data.text || ''; o.items = parseMenuText(o.raw); o.status = 'done';
+      let text = '';
+      for (const psm of ['6', '3']) {
+        await worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' });
+        const { data } = await worker.recognize(canvas);
+        if (tok !== ocrToken) return;
+        text = data.text || '';
+        const kind = receiptKind(text);
+        if (kind === 'receipt' ? (parseReceipt(text).items.length || parseReceipt(text).total) : parseMenuText(text).length) break;
+      }
+      ocrInterpret(text);
     } finally { await worker.terminate(); }
   } catch (e) { if (tok !== ocrToken) return; o.status = 'error'; o.msg = (e && e.message) || String(e); }
   if (tok === ocrToken && LED && LED.view === 'ocr') ledRender();
+}
+function rcSumText() {
+  const rc = LED.ocr && LED.ocr.rc; if (!rc) return '';
+  const sum = rc.items.filter(i => i.on).reduce((a, i) => a + (+i.unit || 0) * (+i.qty || 0), 0);
+  return `품목 합 ${won(sum)}원 · 영수증 합계 ${won(rc.total)}원 ${rc.total && sum === rc.total ? '✓ 일치' : rc.total ? '(다릅니다. 확인하세요)' : ''}`;
+}
+function ledRcptApply() {
+  const D = LED, rc = D.ocr && D.ocr.rc; if (!rc) return;
+  const empty = rc.items.findIndex(i => i.on && !String(i.name || '').trim());
+  if (empty >= 0) { toast('품목의 메뉴 이름을 적어 주세요.'); const el = $(`#modal [data-rc="name"][data-k="${empty}"]`); if (el) el.focus(); return; }
+  const items = rc.items.filter(i => i.on && i.name.trim() && +i.unit > 0 && +i.qty > 0);
+  if (rc.match) { D.place = rc.match.r.name; D.rid = rc.match.r.id; }
+  else if (rc.store.trim()) { D.place = rc.store.trim(); const nv = normQ(D.place), r = nv ? S.restaurants.find(x => normQ(x.name) === nv) : null; D.rid = r ? r.id : null; }
+  if (/^\d{4}-\d\d-\d\d$/.test(rc.date || '')) D.date = rc.date;
+  if (D.place.trim()) { for (const i of items) learnMenu(D.rid, D.place.trim(), i.name.trim(), +i.unit); save(); }
+  D.rcTotal = rc.total || 0;
+  const on = D.items.filter(x => x.on); let msg;
+  if (items.length === 1 && on.length > 0 && on.length === +items[0].qty) {
+    for (const x of on) { x.menu = items[0].name.trim(); x.amount = String(+items[0].unit); x.auto = true; }
+    msg = `${on.length}명에게 ${items[0].name.trim()} ${won(items[0].unit)}원을 넣었습니다.`;
+  } else if (items.length) {
+    msg = items.length === 1 ? `수량 ${items[0].qty}과 켜진 사람 ${on.length}명이 달라 메뉴만 등록했습니다. 사람별로 메뉴를 골라 주세요.` : '품목을 메뉴판에 등록했습니다. 사람별로 메뉴를 골라 주세요.';
+  } else msg = '품목을 찾지 못했습니다. 장소·날짜·합계만 적용했습니다.';
+  D.view = 'main'; ledRender(); toast(msg);
 }
 function ledApplyMenu(n, p) {
   const D = LED, list = D.pickTarget === 'all' ? D.items.filter(i => i.on) : [D.items[D.pickTarget]].filter(Boolean);
@@ -4002,11 +4192,15 @@ const actions = {
   ledPickItem: el => { const s = menuSuggest(LED.rid, LED.place)[+el.dataset.k]; if (s) ledApplyMenu(s.n, s.p || 0); },
   ledPickManual: () => { const n = $('#pkN').value.trim(), p = num($('#pkP').value); if (!n) { toast('메뉴 이름을 적어 주세요.'); return; } if (p > 0 && LED.place.trim()) { learnMenu(LED.rid, LED.place.trim(), n, p); save(); } ledApplyMenu(n, p); },
   ledPickClear: () => { const D = LED, list = D.pickTarget === 'all' ? D.items.filter(i => i.on) : [D.items[D.pickTarget]].filter(Boolean); for (const i of list) i.menu = ''; D.view = 'main'; ledRender(); },
-  ledPickBack: () => { LED.view = LED.view === 'ocr' ? 'pick' : 'main'; ledRender(); },
+  ledPickBack: () => { LED.view = (LED.view === 'ocr' && !(LED.ocr && LED.ocr.kind === 'receipt')) ? 'pick' : 'main'; ledRender(); },
+  ledRcptApply,
+  ledRcUnlink: () => { if (LED.ocr && LED.ocr.rc) { LED.ocr.rc.match = null; ledRender(); } },
+  ledPasteOpen: () => { LED.view = 'paste'; ledRender(); },
+  ledPasteRead: () => { const txt = ($('#pasteTxt').value || '').trim(); if (!txt) { toast('글을 붙여 넣어 주세요.'); return; } LED.ocr = { status: 'done', msg: '', pct: 100, items: [], raw: '', kind: 'menu' }; ocrInterpret(txt); LED.view = 'ocr'; ledRender(); },
   ledPlacePick: el => ledPlaceChoose(+el.dataset.k),
   ledPlaceNew: () => { if (LED.sug) LED.sug.open = false; const ul = $('#ledSug'); if (ul) ul.hidden = true; ledPlaceUI(false); },
-  ledOcrCancel: () => { ocrToken++; LED.view = 'pick'; ledRender(); },
-  ledOcrAdd: () => { const D = LED, items = ((D.ocr && D.ocr.items) || []).filter(i => i.on && i.n.trim() && i.p > 0); if (!items.length) { toast('등록할 메뉴가 없습니다.'); return; } for (const i of items) learnMenu(D.rid, D.place.trim(), i.n.trim(), i.p); save(); toast(`메뉴 ${items.length}개를 등록했습니다.`); D.view = 'pick'; ledRender(); },
+  ledOcrCancel: () => { ocrToken++; LED.view = 'main'; ledRender(); },
+  ledOcrAdd: () => { const D = LED, items = ((D.ocr && D.ocr.items) || []).filter(i => i.on && i.n.trim() && i.p > 0); if (!items.length) { toast('등록할 메뉴가 없습니다.'); return; } if (!D.place.trim()) { toast('장소를 먼저 적어 주세요.'); return; } for (const i of items) learnMenu(D.rid, D.place.trim(), i.n.trim(), i.p); save(); toast(`메뉴 ${items.length}개를 등록했습니다.`); D.view = 'pick'; ledRender(); },
   ledPayer: el => { const D = LED; D.payer = D.payer === el.dataset.name ? '' : el.dataset.name; if (!D.payer || D.payer === treasurerName()) D.reimbursedAt = null; ledRender(); },
   ledRemovePerson: el => { const k = +el.dataset.i, it = LED.items[k]; if (!it) return; if (S.roster.some(m => m.name === it.name)) { LED.delIdx = k; LED.view = 'delperson'; ledRender(); } else { LED.items.splice(k, 1); ledRender(); } },
   ledDelPersonRoster: () => { const it = LED.items[LED.delIdx]; if (it) { S.roster = S.roster.filter(m => m.name !== it.name); LED.items.splice(LED.delIdx, 1); save(); renderToday(); } LED.view = 'main'; ledRender(); },
