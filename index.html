@@ -3904,6 +3904,7 @@ function ledRcptHtml() {
       <div class="led-ps full${m ? ' ok' : ''}">${m ? `✓ 식당 목록의 ‘${esc(m.r.name)}’과 연결됩니다 (${esc(m.why.join('·'))} 일치) <button type="button" class="link" data-action="ledRcUnlink">연결 해제</button>` : (rc.suggest && rc.suggest.length ? `식당 목록에서 확실히 찾지 못했습니다. 혹시 이 가게인가요? ${rc.suggest.map((s, k) => `<button type="button" class="pchip" data-action="ledRcPick" data-k="${k}">${esc(s.r.name)}</button>`).join(' ')}` : '식당 목록에서 찾지 못했습니다. 상호 그대로 새 장소로 기록합니다.')}</div>
       <label>날짜<input type="date" data-rc="date" value="${esc(rc.date)}"></label>
       <label>영수증 합계(원)<input data-rc="total" inputmode="numeric" value="${rc.total || ''}"></label></div>
+    ${(rc.people && rc.people.length) || rc.payer ? `<p class="small" style="margin:8px 0 0">${rc.people && rc.people.length ? `먹은 사람 ${rc.people.length}명: ${esc(rc.people.join(', '))}` : ''}${rc.payer ? ` · 결제 ${esc(rc.payer)}` : ''} <span class="muted">(‘기록에 넣기’를 누르면 반영됩니다)</span></p>` : ''}
     <div class="sec-h" style="margin-top:12px"><h3>품목</h3><span id="rcSum">${esc(rcSumText())}</span></div>
     ${rc.items.length ? `<ul class="led-rc"><li class="led-rc-h"><span></span><span>메뉴</span><span>단가</span><span>수량</span></li>${rc.items.map((it, k) => `<li><input type="checkbox" data-rc="on" data-k="${k}"${it.on ? ' checked' : ''} aria-label="사용"><input data-rc="name" data-k="${k}" value="${esc(it.name)}" placeholder="메뉴 이름" aria-label="메뉴 이름"><input data-rc="unit" data-k="${k}" inputmode="numeric" value="${it.unit}" aria-label="단가"><input data-rc="qty" data-k="${k}" inputmode="numeric" value="${it.qty}" aria-label="수량"><small class="led-rc-n" data-rc-n="${k}">${rcNoteHtml(it, k)}</small></li>`).join('')}</ul>` : '<p class="muted small" style="margin:8px 0">품목을 찾지 못했습니다. 장소·날짜·합계만 적용됩니다.</p>'}
     <details class="led-raw"><summary>읽은 원문 보기</summary><pre>${esc(o.raw)}</pre></details>
@@ -4045,7 +4046,19 @@ function parseReceipt(text) {
     for (const n of numsIn(l)) if (n.v >= 1000 && n.v <= 5000000 && n.v % 10 === 0) cnt.set(n.v, (cnt.get(n.v) || 0) + 1 + hot);
   }
   rc.total = ([...cnt.entries()].filter(e => e[1] >= 2).sort((a, b) => b[1] - a[1] || b[0] - a[0])[0] || [0])[0];
-  const skip = /합\s*계|승인|부\s*가\s*세|판\s*매|카드|거래|할부|사업자|전화|TEL|주\s*소|주\s*문|대표/;
+  const payCnt = new Map();
+  for (const l of lines) {
+    if (!/승인\s*금|결제\s*금\s*액|청구\s*금|받을\s*금/.test(l)) continue;
+    for (const n of numsIn(l)) if (n.v >= 1000 && n.v <= 5000000 && n.v % 10 === 0) payCnt.set(n.v, (payCnt.get(n.v) || 0) + 1);
+  }
+  if (payCnt.size) rc.total = [...payCnt.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
+  for (const l of String(text || '').split(/\r?\n/)) {
+    let m = l.match(/^\s*\[?\s*(?:먹은\s*사람들?|참석자?)\s*\]?\s*[:：]?\s*(.+)$/);
+    if (m && !rc.people) rc.people = m[1].split(/\s*[,，、/·]\s*|\s{2,}/).map(s => s.trim()).filter(Boolean).slice(0, 40);
+    m = l.match(/^\s*\[?\s*(?:결제자|결재자)\s*\]?\s*[:：]?\s*(\S+)/);
+    if (m && !rc.payer) rc.payer = m[1].replace(/[^가-힣A-Za-z0-9]/g, '');
+  }
+  const skip = /합\s*계|승인|부\s*가\s*세|판\s*매|카드|거래|할부|사업자|전화|TEL|주\s*소|주\s*문|대표|먹은\s*사람|참석|결제자|결재자/;
   for (let k = 0; k < lines.length; k++) {
     const line = lines[k]; if (skip.test(line) || BIZ.test(line)) continue;
     const ns = numsIn(line); let hit = null;
@@ -4201,12 +4214,19 @@ function ledRcptApply() {
   if (rc.match) { D.place = rc.match.r.name; D.rid = rc.match.r.id; }
   else if (rc.store.trim()) { D.place = rc.store.trim(); const nv = normQ(D.place), r = nv ? S.restaurants.find(x => normQ(x.name) === nv) : null; D.rid = r ? r.id : null; }
   if (/^\d{4}-\d\d-\d\d$/.test(rc.date || '')) D.date = rc.date;
+  if (rc.people && rc.people.length) {
+    const want = new Set(rc.people);
+    for (const it of D.items) it.on = want.has(it.name);
+    for (const n of rc.people) if (!D.items.some(i => i.name === n)) D.items.push({ name: n, on: true, menu: '', amount: '', auto: false });
+  }
+  if (rc.payer) D.payer = rc.payer;
   if (D.place.trim()) { const key = menuKey(D.rid, D.place.trim()); for (const i of items) menuPut(key, i.name.trim(), +i.unit, !!i.upd); save(); }
   D.rcTotal = rc.total || 0;
   const on = D.items.filter(x => x.on); let msg;
   if (items.length === 1 && on.length > 0 && on.length === +items[0].qty) {
     for (const x of on) { x.menu = items[0].name.trim(); x.amount = String(+items[0].unit); x.auto = true; }
     msg = `${on.length}명에게 ${items[0].name.trim()} ${won(items[0].unit)}원을 넣었습니다.`;
+    if (rc.total && rc.total !== +items[0].unit * on.length) { D.paid = String(rc.total); msg += ` 영수증 합계(${won(rc.total)}원)와 달라 지불 금액에 넣었습니다.`; }
   } else if (items.length) {
     msg = items.length === 1 ? `수량 ${items[0].qty}과 켜진 사람 ${on.length}명이 달라 메뉴만 등록했습니다. 사람별로 메뉴를 골라 주세요.` : '품목을 메뉴판에 등록했습니다. 사람별로 메뉴를 골라 주세요.';
   } else msg = '품목을 찾지 못했습니다. 장소·날짜·합계만 적용했습니다.';
