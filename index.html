@@ -2583,7 +2583,7 @@ function seedToRestaurant(r) {
     guess: !!r.guess, reserve: false, capacity: null, closed: [], note: ''
   };
 }
-const defaultSettings = () => ({ cooldown: 10, walkLimit: 12, nearLimit: 7, avoidSameCat: true, excludedCats: [], depart: '12:00', meet: '1층 현관', notice: DEFAULT_NOTICE, excel: DEFAULT_EXCEL, treasurer: '', bank: '' });
+const defaultSettings = () => ({ cooldown: 10, walkLimit: 12, nearLimit: 7, avoidSameCat: true, excludedCats: [], depart: '12:00', meet: '1층 현관', notice: DEFAULT_NOTICE, excel: DEFAULT_EXCEL, treasurer: '', bank: '', sheet: null });
 const defaultState = () => ({ app: APP_ID, version: 1, createdAt: TODAY, restaurants: SEED_RESTAURANTS.map(seedToRestaurant), visits: [], roster: [], absent: {}, guests: {}, counts: {}, days: {}, settings: defaultSettings(), lastBackup: null });
 function normalize(s) {
   s.settings = Object.assign(defaultSettings(), s.settings || {});
@@ -2989,6 +2989,7 @@ function renderSettings() {
     <div class="form"><label>총무 이름<input data-set="treasurer" list="rosterNames" value="${esc(s.treasurer)}" placeholder="예: 홍길동" autocomplete="off"></label><label>입금 계좌 안내<input data-set="bank" value="${esc(s.bank)}" placeholder="예: 농협 123-45-678901" autocomplete="off"></label></div>
     <datalist id="rosterNames">${S.roster.map(m => `<option value="${esc(m.name)}"></option>`).join('')}</datalist>
     <p class="muted small">정산 기록(이름·메뉴·금액)은 이 기기의 브라우저와 인수인계 파일에만 저장됩니다. 총무가 아닌 분이 먼저 결제하면 「대결」로 표시되고, 총무가 송금하면 「송금완료」를 눌러 두세요.</p></section>
+  ${sheetSettingsHtml()}
   ${syncSettingsHtml()}
   <section class="sec"><div class="sec-h"><h3>인수인계</h3><span>${S.lastBackup ? '마지막 저장 ' + fmtMD(S.lastBackup) : '아직 저장 안 함'}</span></div>
     <p class="muted small">식당 목록·방문 기록·명단·설정을 파일 하나로 저장합니다. 후임자는 이 앱 파일과 인수인계 파일만 받으면 그대로 이어서 쓸 수 있습니다.</p>
@@ -3584,17 +3585,73 @@ function ledNote(e) {
   if (e.note) parts.push(e.note);
   return parts.join(' ');
 }
-function ledTable(month) {
-  const list = ledExpenses(month), people = monthPeople(list), tot = personTotals(list);
-  const head = ['날짜', '요일', ...people, '계', '음식점', '지불금액', '비고'];
-  const rows = list.map(e => {
-    const d = parseYmd(e.date);
-    const cells = people.map(n => e.items.filter(i => i.name === n).reduce((a, i) => a + i.amount, 0) || '');
-    return [fmtMDs(e.date), WEEK[d.getDay()], ...cells, expSum(e), e.place, expPaid(e), ledNote(e)];
+/* ---------- 정산 엑셀 열 맞춤: 엑셀 머리글 순서 그대로, 안 먹은 사람은 빈 칸 ---------- */
+const SHEET_TAIL = ['계', '음식점', '지불금액', '비고'];
+const isPaidTok = t => /^(지불금액|지불|실제금액|결제금액)$/.test(String(t).replace(/\s+/g, ''));
+function sheetLayout() {
+  const sh = S.settings.sheet, ok = sh && Array.isArray(sh.cols) && sh.cols.length;
+  return ok
+    ? { custom: true, lead: Array.isArray(sh.lead) ? sh.lead : [], cols: sh.cols, tail: Array.isArray(sh.tail) && sh.tail.length ? sh.tail : SHEET_TAIL }
+    : { custom: false, lead: [], cols: S.roster.map(m => m.name), tail: SHEET_TAIL };
+}
+function parseSheetHeader(text) {
+  const raw = String(text || '').split(/\r?\n/).find(l => l.trim()) || '';
+  let toks = raw.includes('\t') ? raw.split('\t') : raw.trim().split(/\s*,\s*|\s{2,}|\s+/);
+  toks = toks.map(s => s.replace(/\s+/g, ' ').trim());
+  const di = toks.indexOf('날짜'); if (di < 0) return null;
+  const ti = toks.findIndex((t, i) => i > di && t.replace(/\s/g, '') === '계'); if (ti < 0) return null;
+  let pi = di + 1; if (toks[pi] && toks[pi].replace(/\s/g, '') === '요일') pi++;
+  const tail = toks.slice(ti); while (tail.length > 1 && tail[tail.length - 1] === '') tail.pop();
+  const lead = toks.slice(0, di);
+  return { lead: lead.every(x => x === '') ? [] : lead, cols: toks.slice(pi, ti), tail };
+}
+function sheetTailVal(tok, v) {
+  const k = String(tok).replace(/\s+/g, '');
+  if (k === '계') return v.sum;
+  if (k === '음식점') return v.place;
+  if (isPaidTok(k)) return v.paid;
+  if (k === '비고') return v.note;
+  return '';
+}
+function ledTable(month, rowsOnly) {
+  const L = sheetLayout(), list = ledExpenses(month), colSet = new Set(L.cols.filter(Boolean)), tot = personTotals(list), unknown = new Set();
+  const rows = list.map((e, idx) => {
+    const d = parseYmd(e.date), extra = [];
+    for (const it of e.items) if (!colSet.has(it.name)) { unknown.add(it.name); extra.push(`${it.name} ${won(it.amount)}원`); }
+    const note = [ledNote(e), extra.length ? `(열 없음: ${extra.join(', ')})` : ''].filter(Boolean).join(' ');
+    const cells = L.cols.map(n => (n ? (e.items.filter(i => i.name === n).reduce((a, i) => a + i.amount, 0) || '') : ''));
+    const sum = e.items.filter(i => colSet.has(i.name)).reduce((a, i) => a + i.amount, 0);
+    const lead = L.lead.map(t => (String(t).replace(/\s/g, '') === '번호' ? idx + 1 : ''));
+    return [...lead, fmtMDs(e.date), WEEK[d.getDay()], ...cells, ...L.tail.map(t => sheetTailVal(t, { sum, place: e.place, paid: expPaid(e), note }))];
   });
-  const grand = people.reduce((a, n) => a + tot[n], 0), paid = list.reduce((a, e) => a + expPaid(e), 0);
-  const foot = ['계', '', ...people.map(n => tot[n] || 0), grand, '-', paid, ''];
-  return [head, ...rows, foot].map(r => r.join('\t')).join('\n');
+  const join = r => r.join('\t');
+  if (rowsOnly) return { text: rows.map(join).join('\n'), unknown: [...unknown] };
+  const grand = L.cols.reduce((a, n) => a + (n ? (tot[n] || 0) : 0), 0), paidSum = list.reduce((a, e) => a + expPaid(e), 0);
+  const head = [...L.lead, '날짜', '요일', ...L.cols, ...L.tail];
+  const foot = [...L.lead.map(() => ''), '계', '', ...L.cols.map(n => (n ? (tot[n] || 0) : '')),
+    ...L.tail.map(t => { const k = String(t).replace(/\s+/g, ''); return k === '계' ? grand : k === '음식점' ? '-' : isPaidTok(k) ? paidSum : ''; })];
+  return { text: [head, ...rows, foot].map(join).join('\n'), unknown: [...unknown] };
+}
+function ledCopySheet(rowsOnly) {
+  const r = ledTable(LG.month, rowsOnly);
+  copyText(r.text, rowsOnly ? '행만 복사했습니다. 엑셀의 첫 빈 행 날짜 칸을 누르고 붙여 넣으세요.' : '엑셀 표를 복사했습니다. 엑셀의 첫 칸을 누르고 붙여 넣으세요.');
+  if (r.unknown.length) setTimeout(() => toast(`엑셀 열에 없는 사람(${r.unknown.join(', ')})은 비고에 적었습니다. 설정 › 정산 엑셀 열 맞춤을 확인하세요.`), 2800);
+}
+function sheetHintHtml() {
+  const L = sheetLayout();
+  return L.custom
+    ? `<p class="muted small">엑셀 열 순서: 사람 열 ${L.cols.filter(Boolean).length}개 · 오른쪽 열 ${esc(L.tail.join(' · '))} (설정 › 정산 엑셀 열 맞춤)</p>`
+    : '<p class="muted small">엑셀 열 순서가 설정되지 않아 명단 순서로 복사됩니다. 정산 엑셀과 다르면 <button type="button" class="link" data-action="tab" data-tab="settings">설정</button>에서 엑셀 머리글을 붙여 넣으세요.</p>';
+}
+function sheetSettingsHtml() {
+  const L = sheetLayout(), missing = S.roster.map(m => m.name).filter(n => !L.cols.includes(n));
+  const cols = L.cols.map(n => (n ? esc(n) : '(빈 열)')).join(' · ') || '(없음)';
+  return `<section class="sec"><div class="sec-h"><h3>정산 엑셀 열 맞춤</h3><span>${L.custom ? '적용됨' : '명단 순서 사용 중'}</span></div>
+    <p class="muted small">정산 엑셀의 <b>머리글 행을  ‘엑셀 표 복사’가 그 열 순서와 똑같이 나옵니다. 그 달에 안 먹은 사람의 열은 빈 칸으로 채워 열이 밀리지 않습니다. 달마다 열이 바뀌면 새 머리글을 다시 붙여 넣으세요.</p>
+    <textarea id="sheetHead" rows="2" class="notice-text" placeholder="엑셀 머리글 행을 복사해 붙여 넣기" aria-label="엑셀 머리글 행"></textarea>
+    <div class="row"><button type="button" class="btn seal" data-action="sheetApply">열 순서 적용</button>${L.custom ? '<button type="button" class="btn" data-action="sheetReset">명단 순서로 되돌리기</button>' : ''}</div>
+    <p class="small">${L.custom ? `<b>앞</b> ${esc(L.lead.join(' · ') || '(없음)')} 날짜 · 요일 | <b>사람 열</b> ${cols} | <b>오른쪽</b> ${esc(L.tail.join(' · '))}` : `사람 열(명단 순서): ${cols}`}</p>
+    ${L.custom && missing.length ? `<p class="small" style="color:var(--warn)">명단에는 있지만 엑셀 열에 없는 사람: ${esc(missing.join(', '))} (기록하면 비고에 적힙니다)</p>` : ''}</section>`;
 }
 function ledBill(month, name) {
   const [y, m] = month.split('-'), list = ledExpenses(month).filter(e => e.items.some(i => i.name === name));
@@ -3629,7 +3686,7 @@ function renderLedger() {
     ${people.length ? `<section class="sec"><div class="sec-h"><h3>사람별 합계</h3><span>눌러서 입금 표시</span></div>
       <ul class="led-tot">${people.map(n => `<li class="${settled[n] ? 'is-paid' : ''}"><button type="button" class="led-chk" aria-pressed="${!!settled[n]}" data-action="ledPaidToggle" data-name="${esc(n)}" aria-label="${esc(n)} 입금 완료 표시">${settled[n] ? '✓' : ''}</button><span class="nm">${esc(n)}</span><b>${won(tot[n])}원</b><button type="button" class="link" data-action="ledCopyOne" data-name="${esc(n)}">문구 복사</button></li>`).join('')}
         <li class="led-total"><span class="nm">합계</span><b>${won(grand)}원</b>${paidSum !== grand ? `<span class="muted small">결제액 ${won(paidSum)}원</span>` : ''}</li></ul>
-      <div class="row"><button type="button" class="btn" data-action="ledCopyBills">정산 안내 복사</button><button type="button" class="btn" data-action="ledCopyTable">엑셀 표 복사</button></div></section>` : '<p class="muted small">이 달에 기록한 식비가 없습니다. 위 버튼으로 먹은 사람별 금액을 남겨 두면 한 달 합계가 사람별로 쌓입니다.</p>'}
+      <div class="row"><button type="button" class="btn" data-action="ledCopyBills">정산 안내 복사</button><button type="button" class="btn" data-action="ledCopyTable">엑셀 표 복사</button><button type="button" class="btn" data-action="ledCopyRows">행만 복사</button></div>${sheetHintHtml()}</section>` : '<p class="muted small">이 달에 기록한 식비가 없습니다. 위 버튼으로 먹은 사람별 금액을 남겨 두면 한 달 합계가 사람별로 쌓입니다.</p>'}
     ${pending.length ? `<section class="sec"><div class="sec-h"><h3>총무가 보낼 돈 (대결)</h3><span>${t}님이 아닌 분이 먼저 결제한 건</span></div>
       <ul class="led-list">${pending.map(e => `<li><span class="d">${fmtMD(e.date)}</span><span class="nm">${esc(e.place)} · 결재 ${esc(e.payer)}</span><b>${won(expPaid(e))}원</b><button type="button" class="btn sm" data-action="ledReimburse" data-id="${e.id}">송금완료</button></li>`).join('')}</ul></section>` : ''}
     ${list.length ? `<section class="sec"><div class="sec-h"><h3>내역</h3><span>눌러서 수정</span></div>
@@ -4201,7 +4258,7 @@ function syncPayload() {
   return {
     app: APP_ID, kind: 'sync', version: 1, device: deviceLabel(), exportedAt: new Date().toISOString(),
     ledger: S.ledger, roster: S.roster.map(m => m.name),
-    settings: { treasurer: S.settings.treasurer || '', bank: S.settings.bank || '' },
+    settings: { treasurer: S.settings.treasurer || '', bank: S.settings.bank || '', sheet: S.settings.sheet || null },
     today: pick ? { date: TODAY, rid: pick.id, place: pick.name, confirmedAt: day.confirmedAt, present: presentMembers().map(m => m.name), guests: S.guests[TODAY] || 0 } : null,
   };
 }
@@ -4216,7 +4273,7 @@ function cleanExpense(e) {
 }
 function mergeSync(d) {
   if (!d || d.app !== APP_ID || !d.ledger || typeof d.ledger !== 'object') return null;
-  const res = { added: 0, updated: 0, people: 0, menus: 0, today: false }, L = S.ledger;
+  const res = { added: 0, updated: 0, people: 0, menus: 0, settings: false, today: false }, L = S.ledger;
   const byid = new Map(L.expenses.map(e => [e.id, e]));
   for (const raw of Array.isArray(d.ledger.expenses) ? d.ledger.expenses : []) {
     const e = cleanExpense(raw); if (!e) continue;
@@ -4235,8 +4292,12 @@ function mergeSync(d) {
     if (name && !S.roster.some(m => m.name === name)) { S.roster.push({ id: 'p' + Date.now().toString(36) + res.people, name }); res.people++; }
   }
   const st = d.settings || {};
-  if (!S.settings.treasurer && st.treasurer) S.settings.treasurer = str(st.treasurer, 40);
-  if (!S.settings.bank && st.bank) S.settings.bank = str(st.bank, 80);
+  if (!S.settings.treasurer && st.treasurer) { S.settings.treasurer = str(st.treasurer, 40); res.settings = true; }
+  if (!S.settings.bank && st.bank) { S.settings.bank = str(st.bank, 80); res.settings = true; }
+  if (!S.settings.sheet && st.sheet && Array.isArray(st.sheet.cols) && st.sheet.cols.length) {
+    const arr = (a, n) => (Array.isArray(a) ? a.slice(0, 40).map(x => str(x, n)) : []);
+    S.settings.sheet = { lead: arr(st.sheet.lead, 20), cols: arr(st.sheet.cols, 40), tail: arr(st.sheet.tail, 20) }; res.settings = true;
+  }
   const t = d.today, day = getDay();
   if (t && t.date === TODAY && !day.confirmedAt) {
     const rr = byId(t.rid) || S.restaurants.find(x => x.name === t.place);
@@ -4250,10 +4311,10 @@ function mergeSync(d) {
       res.today = true;
     }
   }
-  if (res.added || res.updated || res.people || res.menus || res.today) { invalidate(); save(); }
+  if (res.added || res.updated || res.people || res.menus || res.settings || res.today) { invalidate(); save(); }
   return res;
 }
-const syncSummary = r => [r.added && `새 기록 ${r.added}건`, r.updated && `고친 기록 ${r.updated}건`, r.people && `사람 ${r.people}명`, r.menus && `메뉴판 ${r.menus}건`, r.today && '오늘 식당'].filter(Boolean).join(', ');
+const syncSummary = r => [r.added && `새 기록 ${r.added}건`, r.updated && `고친 기록 ${r.updated}건`, r.people && `사람 ${r.people}명`, r.menus && `메뉴판 ${r.menus}건`, r.settings && '설정', r.today && '오늘 식당'].filter(Boolean).join(', ');
 
 async function syncPerm(ask) {
   const h = SYNC.handle; if (!h) return 'none';
@@ -4263,14 +4324,14 @@ async function syncPerm(ask) {
 }
 async function syncFolder(ask) {
   if (!SYNC.handle || SYNC.busy) return null;
-  SYNC.busy = true; let total = { added: 0, updated: 0, people: 0, menus: 0, today: false };
+  SYNC.busy = true; let total = { added: 0, updated: 0, people: 0, menus: 0, settings: false, today: false };
   try {
     if (await syncPerm(ask) !== 'granted') return null;
     for await (const [name, fh] of SYNC.handle.entries()) {
       if (fh.kind !== 'file' || !name.startsWith(SYNC_PREFIX) || !name.endsWith('.json')) continue;
       let d; try { d = JSON.parse(await (await fh.getFile()).text()); } catch (e) { continue; }
       const r = mergeSync(d);
-      if (r) { total.added += r.added; total.updated += r.updated; total.people += r.people; total.menus += r.menus; total.today = total.today || r.today; }
+      if (r) { total.added += r.added; total.updated += r.updated; total.people += r.people; total.menus += r.menus; total.settings = total.settings || r.settings; total.today = total.today || r.today; }
     }
     const payload = syncPayload(), hash = JSON.stringify({ ...payload, exportedAt: 0 });
     if (hash !== SYNC.lastHash) {
@@ -4280,7 +4341,7 @@ async function syncFolder(ask) {
     SYNC.last = new Date(); SYNC.err = '';
   } catch (e) { SYNC.err = String((e && e.message) || e); }
   finally { SYNC.busy = false; }
-  if (total.added || total.updated || total.people || total.menus || total.today) renderAll(); else { if (App.tab === 'settings') renderSettings(); if (App.tab === 'ledger') renderLedger(); }
+  if (total.added || total.updated || total.people || total.menus || total.settings || total.today) renderAll(); else { if (App.tab === 'settings') renderSettings(); if (App.tab === 'ledger') renderLedger(); }
   return total;
 }
 function scheduleSync() { if (SYNC.busy || !SYNC.handle || SYNC.perm !== 'granted') return; clearTimeout(SYNC.timer); SYNC.timer = setTimeout(() => syncFolder(false), 1500); }
@@ -4301,8 +4362,8 @@ async function syncExport() {
 }
 function syncImportFiles(files) {
   Promise.all(Array.from(files).map(f => f.text().then(t => { try { return JSON.parse(t); } catch (e) { return null; } }))).then(list => {
-    const sum = { added: 0, updated: 0, people: 0, menus: 0, today: false }; let ok = 0;
-    for (const d of list) { const r = mergeSync(d); if (r) { ok++; sum.added += r.added; sum.updated += r.updated; sum.people += r.people; sum.menus += r.menus; sum.today = sum.today || r.today; } }
+    const sum = { added: 0, updated: 0, people: 0, menus: 0, settings: false, today: false }; let ok = 0;
+    for (const d of list) { const r = mergeSync(d); if (r) { ok++; sum.added += r.added; sum.updated += r.updated; sum.people += r.people; sum.menus += r.menus; sum.settings = sum.settings || r.settings; sum.today = sum.today || r.today; } }
     if (!ok) { toast('점심반장 정산 파일이 아닙니다.'); return; }
     renderAll(); toast(syncSummary(sum) ? '합쳤습니다: ' + syncSummary(sum) : '이미 같은 내용입니다.');
   });
@@ -4402,7 +4463,14 @@ const actions = {
   ledDoDelete: () => { const e = S.ledger.expenses.find(x => x.id === (LED && LED.id)); if (e) { e.deleted = true; e.updatedAt = Date.now(); } save(); closeModal(); renderLedger(); renderToday(); toast('지웠습니다.'); },
   ledReimburse: el => { const e = S.ledger.expenses.find(x => x.id === el.dataset.id); if (!e) return; e.reimbursedAt = TODAY; e.updatedAt = Date.now(); save(); renderLedger(); toast('송금완료로 표시했습니다.'); },
   ledPaidToggle: el => { const mm = S.ledger.settled[LG.month] = S.ledger.settled[LG.month] || {}, n = el.dataset.name; if (mm[n]) delete mm[n]; else mm[n] = TODAY; save(); renderLedger(); },
-  ledCopyTable: () => copyText(ledTable(LG.month), '엑셀 표를 복사했습니다. 엑셀의 첫 칸을 누르고 붙여 넣으세요.'),
+  ledCopyTable: () => ledCopySheet(false),
+  ledCopyRows: () => ledCopySheet(true),
+  sheetApply: () => {
+    const p = parseSheetHeader($('#sheetHead').value);
+    if (!p || !p.cols.length) { toast('머리글 행을 찾지 못했습니다. ‘날짜’부터 ‘계’까지 있는 행을 붙여 넣으세요.'); return; }
+    S.settings.sheet = p; save(); renderSettings(); toast(`열 순서를 적용했습니다(사람 열 ${p.cols.filter(Boolean).length}개).`);
+  },
+  sheetReset: () => { S.settings.sheet = null; save(); renderSettings(); toast('명단 순서로 되돌렸습니다.'); },
   ledCopyBills: () => copyText(ledBills(LG.month), '정산 안내를 복사했습니다. 메신저에 붙여 넣으세요.'),
   ledCopyOne: el => copyText(ledBill(LG.month, el.dataset.name), el.dataset.name + '님 문구를 복사했습니다.'),
   syncPick: async () => { try { const h = await window.showDirectoryPicker({ mode: 'readwrite', id: 'lunch-sync' }); SYNC.handle = h; SYNC.perm = 'granted'; SYNC.lastHash = ''; await idb.set('dir', h); await syncFolder(true); toast('폴더를 연결했습니다.'); } catch (e) { if (!e || e.name !== 'AbortError') toast('폴더를 연결하지 못했습니다. ' + ((e && e.message) || '')); } },
