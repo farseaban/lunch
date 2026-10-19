@@ -2603,6 +2603,8 @@ function normalize(s) {
   for (const r of SEED_RESTAURANTS) if (!s.seedSeen.includes(r.id)) { s.seedSeen.push(r.id); if (!s.restaurants.some(x => x.id === r.id)) s.restaurants.push(seedToRestaurant(r)); }
   // 기본 식당의 위치가 고쳐지면 저장된 목록에도 반영한다(사용자가 지도에서 직접 지정한 위치는 건드리지 않는다).
   for (const r of SEED_RESTAURANTS) { const cur = s.restaurants.find(x => x.id === r.id); if (cur && cur.loc !== 'manual' && r.x != null && (cur.x !== r.x || cur.y !== r.y)) { cur.x = r.x; cur.y = r.y; cur.loc = r.loc || 'rule'; } }
+  if (!s.configSig) s.configSig = configSigOf(s);
+  if (!(s.settingsAt >= 0)) s.settingsAt = 0;
   seedMenus(s);
   s.app = APP_ID;
   return s;
@@ -2618,6 +2620,7 @@ let S = loadState();
 let saveTimer = 0;
 function save() {
   invalidate();
+  trackConfig();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); if (!storageOK) { storageOK = true; renderToday(); } }
@@ -2991,6 +2994,7 @@ function renderSettings() {
     <p class="muted small">정산 기록(이름·메뉴·금액)은 이 기기의 브라우저와 인수인계 파일에만 저장됩니다. 총무가 아닌 분이 먼저 결제하면 「대결」로 표시되고, 총무가 송금하면 「송금완료」를 눌러 두세요.</p></section>
   ${sheetSettingsHtml()}
   ${syncSettingsHtml()}
+  ${cfgSectionHtml()}
   <section class="sec"><div class="sec-h"><h3>인수인계</h3><span>${S.lastBackup ? '마지막 저장 ' + fmtMD(S.lastBackup) : '아직 저장 안 함'}</span></div>
     <p class="muted small">식당 목록·방문 기록·명단·설정을 파일 하나로 저장합니다. 후임자는 이 앱 파일과 인수인계 파일만 받으면 그대로 이어서 쓸 수 있습니다.</p>
     <div class="row"><button type="button" class="btn seal" data-action="exportFile">인수인계 파일 저장</button><button type="button" class="btn" data-action="exportCopy">내용 복사</button></div>
@@ -4257,7 +4261,7 @@ function syncPayload() {
   const day = S.days[TODAY], pick = day && day.confirmedAt && day.pick && byId(day.pick);
   return {
     app: APP_ID, kind: 'sync', version: 1, device: deviceLabel(), exportedAt: new Date().toISOString(),
-    ledger: S.ledger, roster: S.roster.map(m => m.name),
+    ledger: S.ledger, roster: S.roster.map(m => m.name), config: configSnapshot(),
     settings: { treasurer: S.settings.treasurer || '', bank: S.settings.bank || '', sheet: S.settings.sheet || null },
     today: pick ? { date: TODAY, rid: pick.id, place: pick.name, confirmedAt: day.confirmedAt, present: presentMembers().map(m => m.name), guests: S.guests[TODAY] || 0 } : null,
   };
@@ -4287,11 +4291,13 @@ function mergeSync(d) {
     const cur = L.settled[mo] = L.settled[mo] || {};
     for (const [n, dt] of Object.entries(o)) if (/^\d{4}-\d\d-\d\d$/.test(dt) && (!cur[n] || dt > cur[n])) cur[n] = dt;
   }
-  for (const n of Array.isArray(d.roster) ? d.roster : []) {
+  const hasCfg = !!(d.config && typeof d.config === 'object');
+  if (hasCfg && +d.config.at > (S.settingsAt || 0)) { adoptConfig(d.config, +d.config.at); res.settings = true; }
+  for (const n of (hasCfg ? [] : (Array.isArray(d.roster) ? d.roster : []))) {
     const name = str(n, 40).trim();
     if (name && !S.roster.some(m => m.name === name)) { S.roster.push({ id: 'p' + Date.now().toString(36) + res.people, name }); res.people++; }
   }
-  const st = d.settings || {};
+  const st = hasCfg ? {} : (d.settings || {});
   if (!S.settings.treasurer && st.treasurer) { S.settings.treasurer = str(st.treasurer, 40); res.settings = true; }
   if (!S.settings.bank && st.bank) { S.settings.bank = str(st.bank, 80); res.settings = true; }
   if (!S.settings.sheet && st.sheet && Array.isArray(st.sheet.cols) && st.sheet.cols.length) {
@@ -4370,6 +4376,85 @@ function syncImportFiles(files) {
 }
 document.addEventListener('change', e => { if (e.target && e.target.id === 'syncImport') { syncImportFiles(e.target.files); e.target.value = ''; } });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && SYNC.handle && SYNC.perm === 'granted') syncFolder(false); });
+/* ---------- 명단·설정 동기화: 마지막으로 바꾼 쪽이 이긴다 ---------- */
+const CFG_KEYS = ['cooldown', 'walkLimit', 'nearLimit', 'avoidSameCat', 'excludedCats', 'depart', 'meet', 'notice', 'excel', 'treasurer', 'bank', 'sheet'];
+function configSigOf(s) { return JSON.stringify({ r: (s.roster || []).map(m => m.name), s: s.settings || {} }); }
+function trackConfig() { const sig = configSigOf(S); if (sig !== S.configSig) { S.configSig = sig; S.settingsAt = Date.now(); } }
+function configSnapshot() {
+  const st = {}; for (const k of CFG_KEYS) st[k] = S.settings[k] === undefined ? null : S.settings[k];
+  return { at: S.settingsAt || 0, roster: S.roster.map(m => m.name), settings: st };
+}
+function adoptConfig(c, at) {
+  const names = [...new Set((Array.isArray(c.roster) ? c.roster : []).map(n => str(n, 40).trim()).filter(Boolean))];
+  if (Array.isArray(c.roster)) {
+    const old = new Map(S.roster.map(m => [m.name, m]));
+    S.roster = names.map((n, i) => old.get(n) || { id: 'p' + Date.now().toString(36) + i, name: n });
+    const ids = new Set(S.roster.map(m => m.id));
+    for (const k of Object.keys(S.absent)) S.absent[k] = (S.absent[k] || []).filter(id => ids.has(id));
+  }
+  const st = c.settings && typeof c.settings === 'object' ? c.settings : {}, set = S.settings;
+  const clampn = (v, a, b, d) => { const n = parseInt(v, 10); return isNaN(n) ? d : Math.max(a, Math.min(b, n)); };
+  if ('cooldown' in st) set.cooldown = clampn(st.cooldown, 0, 60, set.cooldown);
+  if ('walkLimit' in st) set.walkLimit = clampn(st.walkLimit, 3, 30, set.walkLimit);
+  if ('nearLimit' in st) set.nearLimit = clampn(st.nearLimit, 2, 20, set.nearLimit);
+  if (typeof st.avoidSameCat === 'boolean') set.avoidSameCat = st.avoidSameCat;
+  if (Array.isArray(st.excludedCats)) set.excludedCats = st.excludedCats.filter(x => CATS.includes(x));
+  if (typeof st.depart === 'string') set.depart = st.depart.slice(0, 8);
+  if (typeof st.meet === 'string') set.meet = st.meet.slice(0, 40);
+  if (typeof st.notice === 'string') set.notice = st.notice.trim() ? st.notice.slice(0, 800) : DEFAULT_NOTICE;
+  if (typeof st.excel === 'string') set.excel = st.excel.trim() ? st.excel.slice(0, 200) : DEFAULT_EXCEL;
+  if (typeof st.treasurer === 'string') set.treasurer = st.treasurer.slice(0, 40);
+  if (typeof st.bank === 'string') set.bank = st.bank.slice(0, 80);
+  if ('sheet' in st) {
+    const sh = st.sheet, arr = (a, n) => (Array.isArray(a) ? a.slice(0, 40).map(x => str(x, n)) : []);
+    set.sheet = sh && Array.isArray(sh.cols) && sh.cols.length ? { lead: arr(sh.lead, 20), cols: arr(sh.cols, 40), tail: arr(sh.tail, 20) } : null;
+  }
+  S.settingsAt = at; S.configSig = configSigOf(S);
+}
+// 옛 버전 파일(config 없이 roster·settings만 있는 것)도 설정으로 읽는다
+function configFromPayload(d) {
+  if (!d || d.app !== APP_ID) return null;
+  if (d.config && typeof d.config === 'object') return d.config;
+  if (Array.isArray(d.roster) || d.settings) return { at: 0, roster: Array.isArray(d.roster) ? d.roster : undefined, settings: d.settings || {} };
+  return null;
+}
+function cfgSummaryHtml(c) {
+  const st = c.settings || {}, rows = [];
+  if (Array.isArray(c.roster)) rows.push(`<li><b>명단 ${c.roster.length}명</b>: ${esc(c.roster.slice(0, 14).join(', '))}${c.roster.length > 14 ? ' …' : ''}</li>`);
+  if ('walkLimit' in st) rows.push(`<li>추천 규칙: 도보 한도 ${esc(st.walkLimit)}분, 다시 안 가는 기간 ${esc(st.cooldown)}일${st.excludedCats && st.excludedCats.length ? ', 제외 종류 ' + esc(st.excludedCats.join('·')) : ''}</li>`);
+  if (st.depart || st.meet) rows.push(`<li>출발 ${esc(st.depart || '')} · 모이는 곳 ${esc(st.meet || '')}</li>`);
+  if (st.notice) rows.push('<li>공지문 서식</li>');
+  if (st.excel) rows.push('<li>엑셀 한 줄 서식</li>');
+  if (st.treasurer || st.bank) rows.push(`<li>정산: 총무 ${esc(st.treasurer || '-')} · 계좌 ${esc(st.bank || '-')}</li>`);
+  if (st.sheet && st.sheet.cols) rows.push(`<li>엑셀 열 순서: 사람 열 ${st.sheet.cols.filter(Boolean).length}개</li>`);
+  return rows.join('') || '<li>적용할 설정이 없습니다.</li>';
+}
+let CFG_PENDING = null;
+function cfgConfirm(c, label) {
+  CFG_PENDING = c;
+  const when = c.at ? ` · ${new Date(c.at).getMonth() + 1}월 ${new Date(c.at).getDate()}일 ${pad(new Date(c.at).getHours())}:${pad(new Date(c.at).getMinutes())}에 바꿈` : '';
+  openModal(`<h2>설정 불러오기</h2><p>‘${esc(label)}’${esc(when)}의 설정으로 이 기기의 설정을 바꿉니다.</p>
+    <ul class="about" style="margin:10px 0">${cfgSummaryHtml(c)}</ul>
+    <p class="muted small">이 기기의 같은 설정은 사라집니다. 식당 목록과 정산 기록은 바뀌지 않습니다.</p>
+    <div class="dlg-actions"><span class="grow"></span><button type="button" class="btn" data-action="closeModal">취소</button><button type="button" class="btn seal" data-action="cfgDo">불러오기</button></div>`);
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+}
+async function cfgFromFiles(entries) {   // entries: [{name, text}]
+  let best = null;
+  for (const e of entries) { let d; try { d = JSON.parse(e.text); } catch (x) { continue; } const c = configFromPayload(d); if (c && (!best || (+c.at || 0) > (+best.c.at || 0) || (!best.c.at && !c.at && c.roster))) best = { c, name: e.name }; }
+  if (!best) { toast('설정이 들어 있는 파일이 아닙니다. 점심반장 정산·인수인계 파일을 고르세요.'); return; }
+  cfgConfirm(best.c, best.name);
+}
+document.addEventListener('change', e => {
+  const t = e.target; if (!t || t.id !== 'cfgFile' || !t.files || !t.files.length) return;
+  const files = Array.from(t.files); t.value = '';
+  Promise.all(files.map(f => f.text().then(text => ({ name: f.name, text })))).then(cfgFromFiles);
+});
+function cfgSectionHtml() {
+  return `<section class="sec"><div class="sec-h"><h3>다른 기기의 설정 불러오기</h3></div>
+    <p class="muted small">PC에서 정한 <b>명단·추천 규칙·공지문/엑셀 서식·총무·계좌·엑셀 열 순서</b>를 이 기기로 가져옵니다. PC에서 <b>정산 탭 › 다른 기기와 주고받기 › 내보내기</b>로 만든 파일(점심반장_정산_PC.json)을 고르세요. OneDrive 폴더 동기화를 켜 두면 자동으로 따라오고, 양쪽이 다르면 <b>마지막으로 바꾼 쪽</b>이 적용됩니다.</p>
+    <div class="row"><label class="btn" for="cfgFile">설정 파일 고르기</label><input type="file" id="cfgFile" accept=".json,application/json" multiple class="vh">${SYNC.handle && SYNC.perm === 'granted' ? '<button type="button" class="btn" data-action="cfgFromFolder">동기화 폴더에서 불러오기</button>' : ''}</div></section>`;
+}
 function syncSettingsHtml() {
   const ok = 'showDirectoryPicker' in window && !!window.indexedDB;
   const h = SYNC.handle;
@@ -4478,6 +4563,15 @@ const actions = {
   syncNow: () => syncFolder(true).then(r => toast(r ? '동기화했습니다.' : '접근이 허용되지 않았거나 이미 진행 중입니다.')),
   syncOff: async () => { SYNC.handle = null; SYNC.perm = 'none'; try { await idb.del('dir'); } catch (e) { /* 무시 */ } renderSettings(); renderToday(); toast('동기화를 껐습니다. 폴더의 파일은 그대로 남습니다.'); },
   syncExport,
+  cfgDo: () => { if (!CFG_PENDING) return; adoptConfig(CFG_PENDING, Date.now()); CFG_PENDING = null; save(); closeModal(); renderAll(); toast('설정을 불러왔습니다.'); },
+  cfgFromFolder: async () => {
+    try {
+      if (!SYNC.handle || await syncPerm(true) !== 'granted') { toast('폴더 접근이 허용되지 않았습니다.'); return; }
+      const entries = [];
+      for await (const [name, fh] of SYNC.handle.entries()) if (fh.kind === 'file' && name.startsWith(SYNC_PREFIX) && name.endsWith('.json')) entries.push({ name, text: await (await fh.getFile()).text() });
+      cfgFromFiles(entries);
+    } catch (e) { toast('폴더를 읽지 못했습니다. ' + ((e && e.message) || '')); }
+  },
   rate: el => { const v = S.visits.find(x => x.date === el.dataset.date); if (!v) return; v.rating = v.rating === el.dataset.rating ? null : el.dataset.rating; save(); renderAll(); },
   togglePerson: el => { const ab = S.absent[TODAY] = S.absent[TODAY] || [], id = el.dataset.id, i = ab.indexOf(id); if (i >= 0) ab.splice(i, 1); else ab.push(id); syncTodayVisit(); save(); renderToday(); },
   guest: el => { S.guests[TODAY] = Math.max(0, (S.guests[TODAY] || 0) + +el.dataset.d); syncTodayVisit(); save(); renderToday(); },
