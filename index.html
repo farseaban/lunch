@@ -2838,8 +2838,13 @@ function rateButtons(date, cur, mini) {
   const lab = mini ? { good: '♥', ok: '보통', bad: '별로' } : null;
   return `<div class="rate${mini ? ' mini' : ''}" role="group" aria-label="평가">${opts.map(([k, l]) => `<button type="button" data-action="rate" data-date="${date}" data-rating="${k}" aria-pressed="${cur === k}"${mini ? ` aria-label="${l}"` : ''}>${mini ? lab[k] : l}</button>`).join('')}</div>`;
 }
+function goneNotice() {
+  const g = S.rosterGone; if (!g || !Array.isArray(g.names) || !g.names.length) return '';
+  const left = g.names.filter(n => !S.roster.some(m => m.name === n)); if (!left.length) return '';
+  return `<div class="notice"><p>동기화로 명단에서 빠진 사람이 있습니다: <b>${esc(left.join(', '))}</b>. 의도한 것이 아니면 다시 넣으세요.</p><button class="btn sm seal" data-action="goneRestore">다시 넣기</button><button class="btn sm" data-action="goneDismiss">괜찮아요</button></div>`;
+}
 function topNotices() {
-  let h = syncNotice();
+  let h = syncNotice() + goneNotice();
   if (!storageOK) h += `<div class="notice"><p>이 브라우저에서는 자동 저장이 되지 않습니다. 오늘 바꾼 내용은 설정 › 인수인계 파일로 저장해 두세요.</p><button class="btn sm" data-action="tab" data-tab="settings">설정 열기</button></div>`;
   const hasData = S.visits.length >= 5 || S.roster.length > 0;
   const gap = S.lastBackup ? dayDiff(S.lastBackup, TODAY) : null;
@@ -3003,7 +3008,7 @@ function renderSettings() {
   <section class="sec"><div class="sec-h"><h3>데이터와 계산 기준</h3></div>
     <ul class="about">
       <li>지도: © OpenStreetMap 기여자(ODbL), 2026-10-02에 내려받아 이 파일 안에 넣었습니다. 인터넷이 없어도 보입니다.</li>
-      <li>확인‘확인 필요’로 시작합니다.</li>
+      <li>식당 목록 ${SEED_RESTAURANTS.length}곳: 대전 서구청 「모범음식점 현황」·「착한가격업소 현황」과 웹 검색 1곳(2026-10-02 수집), 카카오맵 검색 후보 ${SEED_RESTAURANTS.filter(r => r.src === '카카오').length}곳(2026-10-14 수집, 청에서 직선 1km 안). 모두 ‘확인 필요’로 시작합니다.</li>
       <li>식당 위치: 도로명주소 건물번호×10m 규칙으로 추정하고 주소가 등록된 주변 건물로 보정했습니다(검증 오차 중앙값 약 50m). 틀린 곳은 수정 › 지도에서 다시 찍기로 고치세요.</li>
       <li>도보 시간: 지도 도로망을 따라 잰 거리 ÷ 초속 1.0m(보행신호 시간 산정 기준 속도).</li>
     </ul>
@@ -3653,7 +3658,7 @@ function sheetSettingsHtml() {
   return `<section class="sec"><div class="sec-h"><h3>정산 엑셀 열 맞춤</h3><span>${L.custom ? '적용됨' : '명단 순서 사용 중'}</span></div>
     <p class="muted small">정산 엑셀의 <b>머리글 행을  ‘엑셀 표 복사’가 그 열 순서와 똑같이 나옵니다. 그 달에 안 먹은 사람의 열은 빈 칸으로 채워 열이 밀리지 않습니다. 달마다 열이 바뀌면 새 머리글을 다시 붙여 넣으세요.</p>
     <textarea id="sheetHead" rows="2" class="notice-text" placeholder="엑셀 머리글 행을 복사해 붙여 넣기" aria-label="엑셀 머리글 행"></textarea>
-    <div class="row"><button type="button" class="btn seal" data-action="sheetApply">열 순서 적용</button>${L.custom ? '<button type="button" class="btn" data-action="sheetReset">명단 순서로 되돌리기</button>' : ''}</div>
+    <div class="row"><button type="button" class="btn seal" data-action="sheetApply">열 순서 적용</button>${L.custom ? '<button type="button" class="btn" data-action="sheetToRoster">엑셀 열 순서로 명단 맞추기</button><button type="button" class="btn ghost" data-action="sheetReset">명단 순서로 되돌리기</button>' : ''}</div>
     <p class="small">${L.custom ? `<b>앞</b> ${esc(L.lead.join(' · ') || '(없음)')} 날짜 · 요일 | <b>사람 열</b> ${cols} | <b>오른쪽</b> ${esc(L.tail.join(' · '))}` : `사람 열(명단 순서): ${cols}`}</p>
     ${L.custom && missing.length ? `<p class="small" style="color:var(--warn)">명단에는 있지만 엑셀 열에 없는 사람: ${esc(missing.join(', '))} (기록하면 비고에 적힙니다)</p>` : ''}</section>`;
 }
@@ -4408,6 +4413,8 @@ function adoptConfig(c, at) {
   const names = [...new Set((Array.isArray(c.roster) ? c.roster : []).map(n => str(n, 40).trim()).filter(Boolean))];
   if (Array.isArray(c.roster)) {
     const old = new Map(S.roster.map(m => [m.name, m]));
+    const gone = [...old.keys()].filter(n => !names.includes(n));
+    if (gone.length) S.rosterGone = { names: gone, at: Date.now() };
     S.roster = names.map((n, i) => old.get(n) || { id: 'p' + Date.now().toString(36) + i, name: n });
     const ids = new Set(S.roster.map(m => m.id));
     for (const k of Object.keys(S.absent)) S.absent[k] = (S.absent[k] || []).filter(id => ids.has(id));
@@ -4575,6 +4582,15 @@ const actions = {
     if (!p || !p.cols.length) { toast('머리글 행을 찾지 못했습니다. ‘날짜’부터 ‘계’까지 있는 행을 붙여 넣으세요.'); return; }
     S.settings.sheet = p; save(); renderSettings(); toast(`열 순서를 적용했습니다(사람 열 ${p.cols.filter(Boolean).length}개).`);
   },
+  sheetToRoster: () => {
+    const L = sheetLayout(); if (!L.custom) return;
+    const names = [...new Set(L.cols.map(n => String(n).trim()).filter(Boolean))];
+    const old = new Map(S.roster.map(m => [m.name, m])), rest = S.roster.filter(m => !names.includes(m.name));
+    const added = names.filter(n => !old.has(n));
+    S.roster = [...names.map((n, i) => old.get(n) || { id: 'p' + Date.now().toString(36) + i, name: n }), ...rest];
+    save(); renderSettings(); renderToday();
+    toast(`명단을 엑셀 순서로 맞췄습니다(${names.length}명${added.length ? ', 새로 넣은 사람: ' + added.join(', ') : ''}${rest.length ? ', 엑셀에 없어 뒤에 둔 사람: ' + rest.map(m => m.name).join(', ') : ''}).`);
+  },
   sheetReset: () => { S.settings.sheet = null; save(); renderSettings(); toast('명단 순서로 되돌렸습니다.'); },
   ledCopyBills: () => copyText(ledBills(LG.month), '정산 안내를 복사했습니다. 메신저에 붙여 넣으세요.'),
   ledCopyOne: el => copyText(ledBill(LG.month, el.dataset.name), el.dataset.name + '님 문구를 복사했습니다.'),
@@ -4583,6 +4599,13 @@ const actions = {
   syncNow: () => syncFolder(true).then(r => toast(r ? '동기화했습니다.' : '접근이 허용되지 않았거나 이미 진행 중입니다.')),
   syncOff: async () => { SYNC.handle = null; SYNC.perm = 'none'; try { await idb.del('dir'); } catch (e) { /* 무시 */ } renderSettings(); renderToday(); toast('동기화를 껐습니다. 폴더의 파일은 그대로 남습니다.'); },
   syncExport,
+  goneRestore: () => {
+    const g = S.rosterGone; if (!g) return;
+    const add = g.names.filter(n => !S.roster.some(m => m.name === n));
+    add.forEach((n, i) => S.roster.push({ id: 'p' + Date.now().toString(36) + i, name: n }));
+    delete S.rosterGone; save(); renderAll(); toast(`${add.join(', ')}을(를) 명단에 다시 넣었습니다.`);
+  },
+  goneDismiss: () => { delete S.rosterGone; save(); renderToday(); },
   cfgDo: () => { if (!CFG_PENDING) return; adoptConfig(CFG_PENDING, Date.now()); CFG_PENDING = null; save(); closeModal(); renderAll(); toast('설정을 불러왔습니다.'); },
   cfgFromFolder: async () => {
     try {
