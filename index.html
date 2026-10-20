@@ -4298,7 +4298,7 @@ function cleanExpense(e) {
   if (!items.length && !e.deleted) return null;
   return { id: str(e.id, 40), date: e.date, kind: ['meal', 'cafe', 'etc'].includes(e.kind) ? e.kind : 'etc', rid: e.rid ? str(e.rid, 40) : null, place: str(e.place, 60),
     items, paid: Number.isFinite(+e.paid) ? Math.round(+e.paid) : items.reduce((a, i) => a + i.amount, 0), payer: str(e.payer, 40), note: str(e.note, 120),
-    reimbursedAt: /^\d{4}-\d\d-\d\d$/.test(e.reimbursedAt || '') ? e.reimbursedAt : null, deleted: !!e.deleted, createdAt: +e.createdAt || 0, updatedAt: +e.updatedAt || 0 };
+    reimbursedAt: /^\d{4}-\d\d-\d\d$/.test(e.reimbursedAt || '') ? e.reimbursedAt : null, deleted: !!e.deleted, xl: !!e.xl, createdAt: +e.createdAt || 0, updatedAt: +e.updatedAt || 0 };
 }
 function mergeSync(d) {
   if (!d || d.app !== APP_ID || !d.ledger || typeof d.ledger !== 'object') return null;
@@ -4307,7 +4307,10 @@ function mergeSync(d) {
   for (const raw of Array.isArray(d.ledger.expenses) ? d.ledger.expenses : []) {
     const e = cleanExpense(raw); if (!e) continue;
     const cur = byid.get(e.id);
-    if (!cur) { L.expenses.push(e); byid.set(e.id, e); if (!e.deleted) res.added++; }
+    if (!cur) {
+      if (e.xl && L.expenses.some(x => !x.deleted && x.date === e.date && (expPaid(x) === e.paid || menuNorm(x.place) === menuNorm(e.place) || menuNorm(x.place).includes(menuNorm(e.place)) || menuNorm(e.place).includes(menuNorm(x.place))))) continue;
+      L.expenses.push(e); byid.set(e.id, e); if (!e.deleted) res.added++;
+    }
     else if (e.updatedAt > (cur.updatedAt || 0)) { Object.assign(cur, e); res.updated++; }
   }
   res.menus += mergeMenus(L.menus, d.ledger.menus);
