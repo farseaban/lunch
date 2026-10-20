@@ -2603,6 +2603,9 @@ function normalize(s) {
   for (const r of SEED_RESTAURANTS) if (!s.seedSeen.includes(r.id)) { s.seedSeen.push(r.id); if (!s.restaurants.some(x => x.id === r.id)) s.restaurants.push(seedToRestaurant(r)); }
   // 기본 식당의 위치가 고쳐지면 저장된 목록에도 반영한다(사용자가 지도에서 직접 지정한 위치는 건드리지 않는다).
   for (const r of SEED_RESTAURANTS) { const cur = s.restaurants.find(x => x.id === r.id); if (cur && cur.loc !== 'manual' && r.x != null && (cur.x !== r.x || cur.y !== r.y)) { cur.x = r.x; cur.y = r.y; cur.loc = r.loc || 'rule'; } }
+  if (!s.restGone || typeof s.restGone !== 'object') s.restGone = {};
+  for (const r of SEED_RESTAURANTS) { const cur = s.restaurants.find(x => x.id === r.id); if (cur && cur.uh !== undefined) cur.uh = restHash(cur); }
+  restInit(s);
   if (!s.configSig) s.configSig = configSigOf(s);
   if (!(s.settingsAt >= 0)) s.settingsAt = 0;
   seedMenus(s);
@@ -2620,6 +2623,7 @@ let S = loadState();
 let saveTimer = 0;
 function save() {
   invalidate();
+  restTrack(S);
   trackConfig();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
@@ -4288,7 +4292,7 @@ function syncPayload() {
   const day = S.days[TODAY], pick = day && day.confirmedAt && day.pick && byId(day.pick);
   return {
     app: APP_ID, kind: 'sync', version: 1, device: deviceLabel(), exportedAt: new Date().toISOString(),
-    ledger: S.ledger, roster: S.roster.map(m => m.name), config: configSnapshot(),
+    ledger: S.ledger, roster: S.roster.map(m => m.name), config: configSnapshot(), rests: restPayload(), restGone: S.restGone,
     settings: { treasurer: S.settings.treasurer || '', bank: S.settings.bank || '', sheet: S.settings.sheet || null },
     today: pick ? { date: TODAY, rid: pick.id, place: pick.name, confirmedAt: day.confirmedAt, present: presentMembers().map(m => m.name), guests: S.guests[TODAY] || 0 } : null,
   };
@@ -4302,9 +4306,59 @@ function cleanExpense(e) {
     items, paid: Number.isFinite(+e.paid) ? Math.round(+e.paid) : items.reduce((a, i) => a + i.amount, 0), payer: str(e.payer, 40), note: str(e.note, 120),
     reimbursedAt: /^\d{4}-\d\d-\d\d$/.test(e.reimbursedAt || '') ? e.reimbursedAt : null, deleted: !!e.deleted, xl: !!e.xl, createdAt: +e.createdAt || 0, updatedAt: +e.updatedAt || 0 };
 }
+/* ---------- 식당 목록 동기화: 식당마다 고친 시각(ua)을 두고 최신 쪽이 이긴다. 지운 식당은 지운 시각을 남긴다 ---------- */
+function restHash(r) {
+  const a = JSON.stringify([r.id, r.name, r.cat, r.menu, r.price, r.tel, r.addr, r.x, r.y, r.loc, r.src, r.srcDate, r.checkedAt, !!r.excluded, r.excludeNote, !!r.guess, !!r.reserve, r.capacity, r.closed, r.note]);
+  let h = 5381; for (let i = 0; i < a.length; i++) h = ((h << 5) + h + a.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36) + a.length.toString(36);
+}
+function restTrack(s) { const now = Date.now(); for (const r of s.restaurants) { const h = restHash(r); if (r.uh !== h) { r.uh = h; r.ua = now; } } }
+function restInit(s) {
+  const seed = new Map(SEED_RESTAURANTS.map(x => [x.id, x]));
+  for (const r of s.restaurants) {
+    if (r.uh !== undefined) continue;
+    const h = restHash(r), sd = seed.get(r.id);
+    r.uh = h; r.ua = sd && restHash(seedToRestaurant(sd)) === h ? 0 : Date.now();
+  }
+}
+function restPayload() { return S.restaurants.filter(r => r.ua > 0).map(r => { const o = Object.assign({}, r); delete o.uh; return o; }); }
+function cleanRest(o) {
+  if (!o || typeof o.id !== 'string' || !o.id || !str(o.name, 60).trim()) return null;
+  const num = v => (v === null || v === undefined || v === '' || !Number.isFinite(+v) ? null : +v);
+  return { id: str(o.id, 40), name: str(o.name, 60).trim(), cat: CATS.includes(o.cat) ? o.cat : '기타', menu: str(o.menu, 300), price: str(o.price, 60), tel: str(o.tel, 40), addr: str(o.addr, 120),
+    x: num(o.x), y: num(o.y), loc: str(o.loc, 12) || 'manual', src: str(o.src, 80), srcDate: str(o.srcDate, 10), checkedAt: /^\d{4}-\d\d-\d\d$/.test(o.checkedAt || '') ? o.checkedAt : null,
+    excluded: !!o.excluded, excludeNote: str(o.excludeNote, 200), guess: !!o.guess, reserve: !!o.reserve, capacity: +o.capacity > 0 ? Math.round(+o.capacity) : null,
+    closed: Array.isArray(o.closed) ? [...new Set(o.closed.map(Number).filter(n => n >= 0 && n <= 6))] : [], note: str(o.note, 300), ua: +o.ua || 0 };
+}
+function mergeRests(d) {
+  let n = 0;
+  const gone = d.restGone && typeof d.restGone === 'object' ? d.restGone : {};
+  for (const [id, ts] of Object.entries(gone)) {
+    if (!(+ts > 0)) continue;
+    if (+ts > (S.restGone[id] || 0)) S.restGone[id] = +ts;
+    if (Array.isArray(S.seedSeen) && !S.seedSeen.includes(id)) S.seedSeen.push(id);
+    const cur = byId(id);
+    if (cur && +ts > (cur.ua || 0)) { S.restaurants = S.restaurants.filter(r => r.id !== id); n++; }
+  }
+  for (const raw of Array.isArray(d.rests) ? d.rests : []) {
+    const r = cleanRest(raw); if (!r || !(r.ua > 0)) continue;
+    if ((S.restGone[r.id] || 0) >= r.ua) continue;
+    const cur = byId(r.id);
+    if (!cur) { delete S.restGone[r.id]; r.uh = restHash(r); S.restaurants.push(r); n++; }
+    else if (r.ua > (cur.ua || 0)) { Object.assign(cur, r); cur.uh = restHash(cur); n++; }
+  }
+  if (n) {
+    Geo.clear();
+    const day = S.days[TODAY];
+    if (day && day.pick && !byId(day.pick) && !day.confirmedAt) applyRec(day);
+    if (day && day.alt && !byId(day.alt)) day.alt = null;
+  }
+  return n;
+}
 function mergeSync(d) {
   if (!d || d.app !== APP_ID || !d.ledger || typeof d.ledger !== 'object') return null;
-  const res = { added: 0, updated: 0, people: 0, menus: 0, settings: false, today: false }, L = S.ledger;
+  const res = { added: 0, updated: 0, people: 0, menus: 0, rests: 0, settings: false, today: false }, L = S.ledger;
+  res.rests = mergeRests(d);
   const byid = new Map(L.expenses.map(e => [e.id, e]));
   for (const raw of Array.isArray(d.ledger.expenses) ? d.ledger.expenses : []) {
     const e = cleanExpense(raw); if (!e) continue;
@@ -4347,10 +4401,10 @@ function mergeSync(d) {
       res.today = true;
     }
   }
-  if (res.added || res.updated || res.people || res.menus || res.settings || res.today) { invalidate(); save(); }
+  if (res.added || res.updated || res.people || res.menus || res.rests || res.settings || res.today) { invalidate(); save(); }
   return res;
 }
-const syncSummary = r => [r.added && `새 기록 ${r.added}건`, r.updated && `고친 기록 ${r.updated}건`, r.people && `사람 ${r.people}명`, r.menus && `메뉴판 ${r.menus}건`, r.settings && '설정', r.today && '오늘 식당'].filter(Boolean).join(', ');
+const syncSummary = r => [r.added && `새 기록 ${r.added}건`, r.updated && `고친 기록 ${r.updated}건`, r.people && `사람 ${r.people}명`, r.menus && `메뉴판 ${r.menus}건`, r.rests && `식당 ${r.rests}곳`, r.settings && '설정', r.today && '오늘 식당'].filter(Boolean).join(', ');
 
 async function syncPerm(ask) {
   const h = SYNC.handle; if (!h) return 'none';
@@ -4360,14 +4414,14 @@ async function syncPerm(ask) {
 }
 async function syncFolder(ask) {
   if (!SYNC.handle || SYNC.busy) return null;
-  SYNC.busy = true; let total = { added: 0, updated: 0, people: 0, menus: 0, settings: false, today: false };
+  SYNC.busy = true; let total = { added: 0, updated: 0, people: 0, menus: 0, rests: 0, settings: false, today: false };
   try {
     if (await syncPerm(ask) !== 'granted') return null;
     for await (const [name, fh] of SYNC.handle.entries()) {
       if (fh.kind !== 'file' || !name.startsWith(SYNC_PREFIX) || !name.endsWith('.json')) continue;
       let d; try { d = JSON.parse(await (await fh.getFile()).text()); } catch (e) { continue; }
       const r = mergeSync(d);
-      if (r) { total.added += r.added; total.updated += r.updated; total.people += r.people; total.menus += r.menus; total.settings = total.settings || r.settings; total.today = total.today || r.today; }
+      if (r) { total.added += r.added; total.updated += r.updated; total.people += r.people; total.menus += r.menus; total.rests += r.rests; total.settings = total.settings || r.settings; total.today = total.today || r.today; }
     }
     const payload = syncPayload(), hash = JSON.stringify({ ...payload, exportedAt: 0 });
     if (hash !== SYNC.lastHash) {
@@ -4377,7 +4431,7 @@ async function syncFolder(ask) {
     SYNC.last = new Date(); SYNC.err = '';
   } catch (e) { SYNC.err = String((e && e.message) || e); }
   finally { SYNC.busy = false; }
-  if (total.added || total.updated || total.people || total.menus || total.settings || total.today) renderAll(); else { if (App.tab === 'settings') renderSettings(); if (App.tab === 'ledger') renderLedger(); }
+  if (total.added || total.updated || total.people || total.menus || total.rests || total.settings || total.today) renderAll(); else { if (App.tab === 'settings') renderSettings(); if (App.tab === 'ledger') renderLedger(); }
   return total;
 }
 function scheduleSync() { if (SYNC.busy || !SYNC.handle || SYNC.perm !== 'granted') return; clearTimeout(SYNC.timer); SYNC.timer = setTimeout(() => syncFolder(false), 1500); }
@@ -4398,8 +4452,8 @@ async function syncExport() {
 }
 function syncImportFiles(files) {
   Promise.all(Array.from(files).map(f => f.text().then(t => { try { return JSON.parse(t); } catch (e) { return null; } }))).then(list => {
-    const sum = { added: 0, updated: 0, people: 0, menus: 0, settings: false, today: false }; let ok = 0;
-    for (const d of list) { const r = mergeSync(d); if (r) { ok++; sum.added += r.added; sum.updated += r.updated; sum.people += r.people; sum.menus += r.menus; sum.settings = sum.settings || r.settings; sum.today = sum.today || r.today; } }
+    const sum = { added: 0, updated: 0, people: 0, menus: 0, rests: 0, settings: false, today: false }; let ok = 0;
+    for (const d of list) { const r = mergeSync(d); if (r) { ok++; sum.added += r.added; sum.updated += r.updated; sum.people += r.people; sum.menus += r.menus; sum.rests += r.rests; sum.settings = sum.settings || r.settings; sum.today = sum.today || r.today; } }
     if (!ok) { toast('점심반장 정산 파일이 아닙니다.'); return; }
     renderAll(); toast(syncSummary(sum) ? '합쳤습니다: ' + syncSummary(sum) : '이미 같은 내용입니다.');
   });
@@ -4575,7 +4629,7 @@ async function liveOnEvent(type, msg) {
     const node = LIVE.nodes[k]; if (!node || !node.ct || !node.iv) continue;
     let d; try { d = await liveDecrypt(node); } catch (e) { bad = true; continue; }
     LIVE.merging = true; let r; try { r = mergeSync(d); } finally { LIVE.merging = false; }
-    if (r && (r.added || r.updated || r.people || r.menus || r.settings || r.today)) any = true;
+    if (r && (r.added || r.updated || r.people || r.menus || r.rests || r.settings || r.today)) any = true;
   }
   LIVE.last = new Date(); LIVE.err = bad ? '비밀 문구가 다른 기기가 있습니다.' : '';
   if (any) renderAll(); else liveUi();
@@ -4759,7 +4813,7 @@ const actions = {
   saveEdit: () => { const r = readForm(); if (!r) return; closeModal(); renderAll(); if (r.x == null) beginPlace(r); else { App.select(r.id); toast('저장했습니다.'); } },
   placeFromForm: () => { const r = readForm(); if (!r) return; closeModal(); renderAll(); beginPlace(r); },
   askDelete: el => { const r = byId(el.dataset.id); if (!r) return; openModal(`<h2>식당 지우기</h2><p>‘${esc(r.name)}’을(를) 목록에서 지웁니다. 지난 방문 기록은 남습니다.</p><div class="dlg-actions"><span class="grow"></span><button type="button" class="btn" data-action="closeModal">취소</button><button type="button" class="btn seal" data-action="doDelete" data-id="${r.id}">지우기</button></div>`); },
-  doDelete: el => { const id = el.dataset.id; S.restaurants = S.restaurants.filter(r => r.id !== id); const day = getDay(); if (day.pick === id && !day.confirmedAt) applyRec(day); if (day.alt === id) day.alt = null; save(); closeModal(); App.select(null); renderAll(); toast('지웠습니다.'); },
+  doDelete: el => { const id = el.dataset.id; S.restGone[id] = Date.now(); S.restaurants = S.restaurants.filter(r => r.id !== id); const day = getDay(); if (day.pick === id && !day.confirmedAt) applyRec(day); if (day.alt === id) day.alt = null; save(); closeModal(); App.select(null); renderAll(); toast('지웠습니다.'); },
   paste: openPaste,
   doImport,
   closeModal,
