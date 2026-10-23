@@ -3394,7 +3394,7 @@ function openModal(html, onMount) {
   if (f) f.focus();
   if (onMount) onMount(d);
 }
-function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; editing = null; pasteState = null; LED = null; }
+function closeModal() { const kept = LED && ledStash(); if (kept) toast('작성 중이던 내용을 임시 보관했습니다. 다시 열면 이어서 쓸 수 있어요.'); const m = $('#modal'); m.hidden = true; m.innerHTML = ''; editing = null; pasteState = null; LED = null; }
 let toastTimer = 0;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2600); }
 function copyText(text, ok) {
@@ -3714,6 +3714,18 @@ function renderLedger() {
 
 /* 기록 입력 창 */
 let LED = null;
+/* 작성 중이던 새 기록은 취소·닫기·앱 전환 때 임시 보관했다가 다시 열면 이어서 쓴다 */
+const DRAFT_KEY = 'seobu-lunch-manager/ledger-draft';
+function ledSig(D) { return JSON.stringify([D.date, D.kind, D.place, D.payer, D.paid, D.note, D.items.map(i => [i.name, i.on, i.menu, i.amount])]); }
+function ledStash() {
+  const D = LED; if (!D || D.id || D.saved || ledSig(D) === D.sig0) return false;
+  const core = { date: D.date, kind: D.kind, rid: D.rid, place: D.place, payer: D.payer, paid: D.paid, note: D.note, reimbursedAt: D.reimbursedAt, bulk: D.bulk, items: D.items.map(i => ({ name: i.name, on: i.on, menu: i.menu, amount: i.amount, auto: i.auto })) };
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ at: Date.now(), d: core })); } catch (e) { return false; }
+  return true;
+}
+function ledDraft() { try { const o = JSON.parse(localStorage.getItem(DRAFT_KEY)); if (o && o.d && Date.now() - o.at < 3 * 864e5 && Array.isArray(o.d.items)) return o.d; } catch (e) { /* 무시 */ } return null; }
+function ledDraftClear() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* 무시 */ } }
+document.addEventListener('visibilitychange', () => { if (document.hidden && LED) ledStash(); });
 function openLedger(id, preset) {
   const p = preset || {};
   let D;
@@ -3726,6 +3738,12 @@ function openLedger(id, preset) {
     const kind = p.kind || 'meal', day = getDay(), r = kind === 'meal' && day.confirmedAt && byId(day.pick), ab = S.absent[TODAY] || [];
     D = { id: null, date: TODAY, kind, rid: r ? r.id : null, place: r ? r.name : '', payer: treasurerName(), paid: '', note: '', reimbursedAt: null, bulk: '', orig: 0,
       items: S.roster.map(m => ({ name: m.name, on: !ab.includes(m.id), menu: '', amount: '', auto: false })) };
+  }
+  D.sig0 = ledSig(D);
+  const dr = !id && ledDraft();
+  if (dr && dr.kind === D.kind) {
+    Object.assign(D, dr, { id: null, orig: 0, restored: true });
+    for (const m of S.roster) if (!D.items.some(i => i.name === m.name)) D.items.push({ name: m.name, on: false, menu: '', amount: '', auto: false });
   }
   D.view = 'main'; LED = D; ledRender(true);
 }
@@ -3868,6 +3886,7 @@ function ledMainHtml() {
   const D = LED, t = treasurerName();
   const cands = [...new Set([t, ...S.roster.map(m => m.name), ...D.items.map(i => i.name), D.payer].filter(Boolean))];
   return `<h2>${D.id ? '식비 수정' : '식비 기록'}</h2>
+    ${D.restored ? '<div class="notice"><p>작성 중이던 내용을 불러왔습니다.</p><button type="button" class="btn sm" data-action="ledFresh">새로 시작</button></div>' : ''}
     <div class="row led-scan"><label class="btn seal" for="ocrFile">📷 영수증 사진으로 채우기</label><button type="button" class="btn" data-action="ledPasteOpen">📋 글자 붙여넣기</button><input type="file" id="ocrFile" accept="image/*" class="vh"></div>
     <p class="muted small" style="margin-bottom:6px">영수증을 찍으면 가게·날짜·합계·품목을 채워 줍니다. 글자는 틀릴 수 있으니 확인하세요.</p>
     <div class="form led-form">
@@ -4274,6 +4293,7 @@ function ledSave() {
     reimbursedAt: payer && payer !== treasurerName() ? (D.reimbursedAt || null) : null, createdAt: old ? old.createdAt : Date.now(), updatedAt: Date.now() };
   if (old) Object.assign(old, rec); else S.ledger.expenses.push(rec);
   if (paid === sum) for (const i of rec.items) learnMenu(rec.rid, place, i.menu, i.amount);
+  D.saved = true; ledDraftClear();
   save(); closeModal(); LG.month = rec.date.slice(0, 7);
   if (App.tab === 'ledger') renderLedger();
   renderToday(); toast('기록했습니다.');
@@ -4741,7 +4761,7 @@ const actions = {
     if (el.dataset.key) { menuRemove(el.dataset.key, el.dataset.mid); MG.open = el.dataset.key; mgListRefresh(); return; }
     menuRemove(menuKey(LED.rid, LED.place.trim()), el.dataset.mid); LED.boardOpen = true; ledBoardRefresh();
   },
-  mgOpen: () => { LED = null; openMenus(); },
+  mgOpen: () => { ledStash(); LED = null; openMenus(); },
   mgAdd: el => {
     const det = el.closest('details'), n = det.querySelector('.mgN').value.trim(), p = num(det.querySelector('.mgP').value);
     if (!n || !p) { toast('메뉴 이름과 가격을 적어 주세요.'); return; }
@@ -4752,6 +4772,7 @@ const actions = {
   ledSave,
   ledAskDelete: () => openModal(`<h2>기록 지우기</h2><p>이 식비 기록을 지웁니다. 사람별 합계에서도 빠집니다.</p><div class="dlg-actions"><span class="grow"></span><button type="button" class="btn" data-action="ledBack">돌아가기</button><button type="button" class="btn seal" data-action="ledDoDelete">지우기</button></div>`),
   ledBack: () => ledRender(true),
+  ledFresh: () => { ledDraftClear(); const k = LED.kind; LED = null; openLedger(null, { kind: k }); },
   ledDoDelete: () => { const e = S.ledger.expenses.find(x => x.id === (LED && LED.id)); if (e) { e.deleted = true; e.updatedAt = Date.now(); } save(); closeModal(); renderLedger(); renderToday(); toast('지웠습니다.'); },
   ledReimburse: el => { const e = S.ledger.expenses.find(x => x.id === el.dataset.id); if (!e) return; e.reimbursedAt = TODAY; e.updatedAt = Date.now(); save(); renderLedger(); toast('송금완료로 표시했습니다.'); },
   ledPaidToggle: el => { const mm = S.ledger.settled[LG.month] = S.ledger.settled[LG.month] || {}, n = el.dataset.name; if (mm[n]) delete mm[n]; else mm[n] = TODAY; save(); renderLedger(); },
