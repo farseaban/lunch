@@ -374,7 +374,9 @@ p{margin:0}
 .dialog{width:min(580px,100%);max-height:calc(100% - 16px);overflow:auto;background:var(--surface);border-radius:16px;border:1px solid var(--line);box-shadow:0 20px 50px rgba(0,0,0,.28);padding:20px}
 .dialog h2{margin:0 0 12px;font:400 23px/1.2 var(--f-display)}
 .dialog > p{margin-bottom:12px}
-.dlg-actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;align-items:center}
+.dlg-actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;align-items:center;position:sticky;bottom:-20px;margin-left:-20px;margin-right:-20px;margin-bottom:-20px;padding:12px 20px calc(12px + env(safe-area-inset-bottom));background:var(--surface);border-top:1px solid var(--line)}
+/* 휴대폰에서 입력칸이 16px보다 작으면 포커스할 때 화면이 확대되므로 키운다 */
+@media (pointer:coarse){input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea{font-size:16px!important}}
 .copybox,#pasteBox{width:100%;border:1px solid var(--line-2);border-radius:10px;padding:10px;background:var(--surface-2);font:12.5px/1.5 ui-monospace,Consolas,monospace;resize:vertical}
 .ptable{overflow-x:auto;margin-top:12px;border:1px solid var(--line);border-radius:10px}
 .ptable table{border-collapse:collapse;font-size:12.5px;min-width:100%}
