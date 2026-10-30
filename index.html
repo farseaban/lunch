@@ -4381,13 +4381,19 @@ function mergeSync(d) {
   if (!d || d.app !== APP_ID || !d.ledger || typeof d.ledger !== 'object') return null;
   const res = { added: 0, updated: 0, people: 0, menus: 0, rests: 0, settings: false, today: false }, L = S.ledger;
   res.rests = mergeRests(d);
-  const byid = new Map(L.expenses.map(e => [e.id, e]));
+  const byid = new Map(L.expenses.map(e => [e.id, e])), fresh = new Set();
   for (const raw of Array.isArray(d.ledger.expenses) ? d.ledger.expenses : []) {
     const e = cleanExpense(raw); if (!e) continue;
     const cur = byid.get(e.id);
     if (!cur) {
-      if (e.xl && L.expenses.some(x => !x.deleted && x.date === e.date && (expPaid(x) === e.paid || menuNorm(x.place) === menuNorm(e.place) || menuNorm(x.place).includes(menuNorm(e.place)) || menuNorm(e.place).includes(menuNorm(x.place))))) continue;
-      L.expenses.push(e); byid.set(e.id, e); if (!e.deleted) res.added++;
+      if (e.xl && raw.replace === true) {
+        // 엑셀 값으로 덮어쓰기: 같은 날 같은 장소(또는 같은 금액)의 기존 기록은 지우고(삭제 표시) 엑셀 기록으로 바꾼다
+        for (const x of L.expenses) {
+          if (x.deleted || x.date !== e.date || fresh.has(x.id)) continue;
+          if (expPaid(x) === e.paid || menuNorm(x.place) === menuNorm(e.place) || menuNorm(x.place).includes(menuNorm(e.place)) || menuNorm(e.place).includes(menuNorm(x.place))) { x.deleted = true; x.updatedAt = Math.max(Date.now(), e.updatedAt) + 1; res.updated++; }
+        }
+      } else if (e.xl && L.expenses.some(x => !x.deleted && x.date === e.date && (expPaid(x) === e.paid || menuNorm(x.place) === menuNorm(e.place) || menuNorm(x.place).includes(menuNorm(e.place)) || menuNorm(e.place).includes(menuNorm(x.place))))) continue;
+      L.expenses.push(e); byid.set(e.id, e); fresh.add(e.id); if (!e.deleted) res.added++;
     }
     else if (e.updatedAt > (cur.updatedAt || 0)) { Object.assign(cur, e); res.updated++; }
   }
