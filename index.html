@@ -4478,6 +4478,12 @@ async function syncExport() {
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 3000);
   toast('파일로 저장했습니다. 다운로드·파일 앱에서 OneDrive 폴더로 옮기세요.');
 }
+// 파일 선택 입력칸은 설정 화면 바깥에 한 번만 만든다: 화면이 다시 그려져도(동기화·실시간 수신) 선택 결과가 사라지지 않게
+function syncPickInput() {
+  let el = document.getElementById('syncImport');
+  if (!el) { el = document.createElement('input'); el.type = 'file'; el.id = 'syncImport'; el.accept = '.json,application/json'; el.multiple = true; el.hidden = true; document.body.appendChild(el); }
+  return el;
+}
 function syncImportFiles(files) {
   Promise.all(Array.from(files).map(f => f.text().then(t => { try { return JSON.parse(t); } catch (e) { return null; } }))).then(list => {
     const sum = { added: 0, updated: 0, people: 0, menus: 0, rests: 0, settings: false, today: false }; let ok = 0;
@@ -4699,7 +4705,7 @@ function syncSettingsHtml() {
 function syncLedgerHtml() {
   return `<section class="sec"><div class="sec-h"><h3>다른 기기와 주고받기</h3></div>
     <p class="muted small">휴대폰에서 기록했다면 식사 후 <b>내보내기</b>를 눌러 OneDrive 폴더에 저장하세요. 다른 기기의 파일은 <b>가져오기</b>로 합칩니다(여러 개 선택 가능). 같은 기록이 겹쳐도 중복되지 않습니다.</p>
-    <div class="row"><button type="button" class="btn" data-action="syncExport">내보내기</button><label class="btn" for="syncImport">가져오기</label><input type="file" id="syncImport" accept=".json,application/json" multiple hidden></div></section>`;
+    <div class="row"><button type="button" class="btn" data-action="syncExport">내보내기</button><button type="button" class="btn" data-action="syncPick">가져오기</button></div></section>`;
 }
 if (window.indexedDB && 'showDirectoryPicker' in window) {
   idb.get('dir').then(async h => {
@@ -4803,6 +4809,7 @@ const actions = {
   ledCopyOne: el => copyText(ledBill(LG.month, el.dataset.name), el.dataset.name + '님 문구를 복사했습니다.'),
   syncPick: async () => { try { const h = await window.showDirectoryPicker({ mode: 'readwrite', id: 'lunch-sync' }); SYNC.handle = h; SYNC.perm = 'granted'; SYNC.lastHash = ''; await idb.set('dir', h); await syncFolder(true); toast('폴더를 연결했습니다.'); } catch (e) { if (!e || e.name !== 'AbortError') toast('폴더를 연결하지 못했습니다. ' + ((e && e.message) || '')); } },
   syncAllow: () => syncFolder(true),
+  syncPick: () => { syncPickInput().click(); },
   syncNow: () => syncFolder(true).then(r => toast(r ? '동기화했습니다.' : '접근이 허용되지 않았거나 이미 진행 중입니다.')),
   syncOff: async () => { SYNC.handle = null; SYNC.perm = 'none'; try { await idb.del('dir'); } catch (e) { /* 무시 */ } renderSettings(); renderToday(); toast('동기화를 껐습니다. 폴더의 파일은 그대로 남습니다.'); },
   syncExport,
